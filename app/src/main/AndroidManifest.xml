@@ -5,6 +5,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      申请电池优化豁免（Doze 白名单）。
+      定制 ROM 的省电策略会把应用置于「受限」状态，效果等同于 force-stop，
+      而无障碍权限会因此被系统剥离 —— 这才是「设置一次之后过阵子又失效」的真正原因。
+      这不是网络权限，只是免除省电限制。
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".AfuApplication"

@@ -83,6 +83,12 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.onnxruntime.mobile)
 
+    // 保活：Shizuku 借 shell 权限把被系统移除的无障碍服务写回去（Tally 同款）。
+    // 没有 Shizuku 时这部分完全降级，不影响其它功能。
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
+    implementation(libs.androidx.work.runtime)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -194,6 +194,7 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         } else {
             DEBOUNCE_MILLIS
         }
+        debugLog("debounce=${debounceMillis}ms (clicked=$clicked classChanged=$classChanged)")
 
         // 已有截图任务在执行时不要取消它：截一张全屏再丢掉纯属浪费，
         // 而且会让用户在支付页多等一个完整周期。

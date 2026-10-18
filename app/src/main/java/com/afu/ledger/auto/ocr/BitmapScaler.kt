@@ -13,6 +13,43 @@ import android.graphics.Bitmap
 object BitmapScaler {
 
     /**
+     * 把 [source] 缩放到 `targetWidth × targetHeight` 并**直接归一化成 det 输入张量**。
+     *
+     * 与「先 [scaleToImage] 得到 IntArray、再 [OcrImageOps.detInput] 归一化」相比，
+     * 少一次 `width × height` 的 int 数组分配与拷贝：像素直接从 `getPixels` 的临时缓冲
+     * 灌进 float 张量，然后用完即弃。
+     *
+     * 全屏 1440×3200 缩到 det 尺寸后约 43 万像素，省下的是 ~1.7 MB 的一次性分配。
+     *
+     * @return CHW 排布的归一化张量；参数非法时返回 null
+     */
+    fun scaleToDetInput(
+        source: Bitmap,
+        targetWidth: Int,
+        targetHeight: Int,
+    ): FloatArray? {
+        if (targetWidth < 1 || targetHeight < 1) return null
+        if (source.width < 1 || source.height < 1) return null
+
+        val scaled = if (source.width == targetWidth && source.height == targetHeight) {
+            source
+        } else {
+            runCatching {
+                Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+            }.getOrNull() ?: return null
+        }
+
+        try {
+            val pixels = IntArray(targetWidth * targetHeight)
+            scaled.getPixels(pixels, 0, targetWidth, 0, 0, targetWidth, targetHeight)
+            return OcrImageOps.detInputFromPixels(pixels, targetWidth, targetHeight)
+        } finally {
+            // createScaledBitmap 在尺寸相同时直接返回源对象，此时不能回收
+            if (scaled !== source) scaled.recycle()
+        }
+    }
+
+    /**
      * 把 [source] 缩放到 `targetWidth × targetHeight` 并取出像素。
      *
      * @return 缩放后的 [OcrImage]；参数非法时返回 null
