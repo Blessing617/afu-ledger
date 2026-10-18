@@ -3,7 +3,9 @@ package com.afu.ledger.ui
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -68,6 +70,11 @@ private val bottomTabs = listOf(
     BottomTab("settings", "设置", Icons.Outlined.Settings),
 )
 
+private fun tabIndex(route: String?): Int {
+    val index = bottomTabs.indexOfFirst { it.route == route }
+    return if (index >= 0) index else 0
+}
+
 @Composable
 fun AfuApp(container: AppContainer) {
     val navController = rememberNavController()
@@ -122,9 +129,20 @@ fun AfuApp(container: AppContainer) {
                 navController = navController,
                 startDestination = "home",
                 modifier = Modifier.padding(innerPadding),
-                // 标签切换用短淡入：220ms 在快速连点时会显得「拖」，120ms 更跟手
-                enterTransition = { fadeIn(tween(120)) },
-                exitTransition = { fadeOut(tween(90)) },
+                // 标签切换按顺序横向滑动：切到右边的 tab 从右滑入，切回左边则反向。
+                // 有方向感比纯淡入更「跟手」，也符合左右排列的心理模型。
+                enterTransition = {
+                    val forward = tabIndex(targetState.destination.route) >=
+                        tabIndex(initialState.destination.route)
+                    slideInHorizontally(tween(220)) { full -> if (forward) full else -full } +
+                        fadeIn(tween(160))
+                },
+                exitTransition = {
+                    val forward = tabIndex(targetState.destination.route) >=
+                        tabIndex(initialState.destination.route)
+                    slideOutHorizontally(tween(220)) { full -> if (forward) -full else full } +
+                        fadeOut(tween(160))
+                },
                 popEnterTransition = { fadeIn(tween(120)) },
                 popExitTransition = { fadeOut(tween(90)) },
             ) {
