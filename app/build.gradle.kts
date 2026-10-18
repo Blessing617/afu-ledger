@@ -14,10 +14,20 @@ android {
         applicationId = "com.afu.ledger"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // OCR 运行时只保留目标机型（小米 14 Pro / arm64-v8a）的 ABI，避免 APK 体积翻倍。
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+    }
+
+    // 模型已是压缩友好的二进制格式，交给 aapt 再压一遍只会拖慢首次解压。
+    androidResources {
+        noCompress.add("ort")
     }
 
     buildTypes {
@@ -71,6 +81,7 @@ dependencies {
 
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.coil.compose)
+    implementation(libs.onnxruntime.mobile)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
