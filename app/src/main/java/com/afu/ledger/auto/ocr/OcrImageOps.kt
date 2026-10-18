@@ -50,6 +50,21 @@ object OcrImageOps {
      */
     fun detInput(image: OcrImage, targetWidth: Int, targetHeight: Int): FloatArray? {
         if (image.width != targetWidth || image.height != targetHeight) return null
+        return detInputFromPixels(image.argb, targetWidth, targetHeight)
+    }
+
+    /**
+     * 直接由 ARGB 像素数组归一化成 det 输入张量。
+     *
+     * 与 [detInput] 的区别只是不要求包一层 [OcrImage]：
+     * 截图通道里像素本来就在一个临时 IntArray 里，没必要再包一个对象。
+     *
+     * @throws IllegalArgumentException 像素数量与尺寸不符
+     */
+    fun detInputFromPixels(pixels: IntArray, targetWidth: Int, targetHeight: Int): FloatArray {
+        require(pixels.size == targetWidth * targetHeight) {
+            "像素数 ${pixels.size} 与 ${targetWidth}x$targetHeight 不匹配"
+        }
 
         val planeSize = targetHeight * targetWidth
         val out = FloatArray(3 * planeSize)
@@ -62,7 +77,6 @@ object OcrImageOps {
         val biasG = -DET_MEAN[1] / DET_STD[1]
         val biasB = -DET_MEAN[2] / DET_STD[2]
 
-        val pixels = image.argb
         val inv255 = 1f / 255f
         for (i in 0 until planeSize) {
             val p = pixels[i]

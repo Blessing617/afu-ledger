@@ -125,10 +125,8 @@ class PpOcrEngine(
         val detWidth = sizes[0]
         val detHeight = sizes[1]
 
-        // det 输入：系统缩放到 detWidth × detHeight
-        val detImage = BitmapScaler.scaleToImage(source, detWidth, detHeight)
-            ?: return emptyList()
-        val detInput = OcrImageOps.detInput(detImage, detWidth, detHeight)
+        // det 输入：系统缩放 + 直接归一化，省掉一次全尺寸 int 数组的中间对象
+        val detInput = BitmapScaler.scaleToDetInput(source, detWidth, detHeight)
             ?: return emptyList()
 
         val detStarted = System.currentTimeMillis()

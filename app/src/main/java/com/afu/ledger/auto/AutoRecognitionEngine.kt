@@ -190,7 +190,15 @@ class AutoRecognitionEngine(
 
     private companion object {
         const val TAG = "AutoLedger"
-        const val MIN_USEFUL_NODE_LINES = 3
-        const val MIN_USEFUL_NODE_CHARS = 12
     }
 }
+
+/**
+ * 「节点文本够不够用」的阈值。
+ *
+ * 提到文件级并标 internal，是为了让单测引用同一份常量：
+ * 如果这些数字被改动（例如放宽到「有 1 行就算够用」），
+ * 支付宝这类页面就会从节点通道退化成整页 OCR，而测试能立刻失败。
+ */
+internal const val MIN_USEFUL_NODE_LINES = 3
+internal const val MIN_USEFUL_NODE_CHARS = 12

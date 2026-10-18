@@ -24,6 +24,28 @@ class OcrImageOpsTest {
     }
 
     @Test
+    fun `多档位长边都能被遵守`() {
+        // 档位可配置（PpOcrEngine 的构造参数），这里锁住每一档的尺寸计算：
+        // 长边不应超过该档上限太多（32 对齐会带来最多一个格的溢出）。
+        for (limit in listOf(640, 960)) {
+            val sizes = OcrImageOps.detTargetSize(width = 1440, height = 3200, limitSide = limit)
+            assertEquals("档位 $limit：宽应 32 对齐", 0, sizes[0] % 32)
+            assertEquals("档位 $limit：高应 32 对齐", 0, sizes[1] % 32)
+            assertTrue("档位 $limit 的长边溢出过多，实际 ${sizes[1]}", sizes[1] <= limit + 32)
+        }
+    }
+
+    @Test
+    fun `降低档位确实减少输出像素`() {
+        val at960 = OcrImageOps.detTargetSize(1440, 3200, 960)
+        val at640 = OcrImageOps.detTargetSize(1440, 3200, 640)
+        val area960 = at960[0].toLong() * at960[1]
+        val area640 = at640[0].toLong() * at640[1]
+        // 640 档应该明显更省：像素数约 (640/960)^2 ≈ 44%
+        assertTrue("640 档未显著减少像素：$area640 vs $area960", area640 < area960 * 0.5)
+    }
+
+    @Test
     fun `小于上限的图不放大`() {
         val sizes = OcrImageOps.detTargetSize(width = 300, height = 200, limitSide = 960)
         assertTrue(sizes[0] <= 320)

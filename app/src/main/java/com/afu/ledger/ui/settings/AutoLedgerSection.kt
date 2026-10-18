@@ -16,6 +16,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -29,6 +33,8 @@ import com.afu.ledger.auto.AutoLedgerSettings
 import com.afu.ledger.auto.OcrStatus
 import com.afu.ledger.auto.RecognitionEntry
 import com.afu.ledger.auto.keepalive.AutoLedgerKeepAlive
+import com.afu.ledger.auto.keepalive.BatteryWhitelist
+import com.afu.ledger.auto.keepalive.ShizukuGuard
 import com.afu.ledger.domain.model.Account
 import com.afu.ledger.domain.model.Category
 import com.afu.ledger.domain.model.Money
@@ -97,20 +103,16 @@ fun AutoLedgerSection(
         }
 
         if (!serviceEnabled) {
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                TextButton(onClick = { context.startActivity(accessibilitySettingsIntent()) }) {
-                    Text("去开启无障碍服务")
-                }
-                TextButton(onClick = { context.startActivity(appDetailsIntent(context)) }) {
-                    Text("应用信息")
-                }
-            }
-            Text(
-                text = "小米 / Redmi：若被提示「受限制的设置」，到应用信息右上角菜单里允许；" +
-                    "再把自启动打开、省电策略设为「无限制」，否则服务容易被系统停掉。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // 授权步骤（只在没开时出现）
+            KeepAliveSetupGuide(
+                serviceEnabled = serviceEnabled,
+                onOpenAccessibility = { context.startActivity(accessibilitySettingsIntent()) },
+                onOpenAppDetails = { context.startActivity(appDetailsIntent(context)) },
             )
+        } else {
+            // 已授权后，把「保活三件套」里剩下的两件也补齐 —— 这两件只需设置一次，
+            // 之后就再也不会被系统 force-stop，用不着反复回来点授权。
+            KeepAliveHardening()
         }
 
         if (accounts.isNotEmpty()) {
@@ -245,6 +247,173 @@ fun AutoLedgerSection(
 }
 
 private const val RecognitionLogLineLimit = 8
+
+/**
+ * 授权引导。只在无障碍服务没开时出现。
+ */
+@Composable
+private fun KeepAliveSetupGuide(
+    serviceEnabled: Boolean,
+    onOpenAccessibility: () -> Unit,
+    onOpenAppDetails: () -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        TextButton(onClick = onOpenAccessibility) { Text("去开启无障碍服务") }
+        TextButton(onClick = onOpenAppDetails) { Text("应用信息") }
+    }
+    Text(
+        text = "小米 / Redmi：若被提示「受限制的设置」，到应用信息右上角菜单里允许。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/**
+ * 保活加固：**只需设置一次**的几项。
+ *
+ * ## 为什么不是「失效了再让用户重新授权」
+ *
+ * 无障碍权限不会自己过期。它消失的**唯一原因**是应用被 force-stop
+ * （AOSP `AccessibilityManagerService.onPackagesForceStoppedLocked`：
+ * force-stop 一个无障碍应用会连带把它的无障碍权限从安全设置里移除）。
+ *
+ * 而在小米 / Redmi 上，**从最近任务里把卡片划掉就等于 force-stop**。
+ * 这才是「用着用着就不记账了」的真正原因 —— 不是权限过期，是被划掉了。
+ * 反复让用户回来重新授权是在治标。
+ *
+ * 真正的解法是小米官方的「锁定任务」：最近任务里把卡片**往下拉**，
+ * 出现锁图标即锁定，之后一键清理也不会杀掉它。这一步是系统 UI 动作，
+ * 应用层无法代劳，只能把路径讲到足够具体。
+ * 电池优化豁免与自启动在这里一并兜住。
+ */
+@Composable
+private fun KeepAliveHardening() {
+    val context = LocalContext.current
+    var ignoringBattery by remember {
+        mutableStateOf(BatteryWhitelist.isIgnoringBatteryOptimizations(context))
+    }
+    // 回到应用时复查：用户可能刚从系统页面回来
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                ignoringBattery = BatteryWhitelist.isIgnoringBatteryOptimizations(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Spacer(modifier = Modifier.height(Spacing.md))
+    Text(
+        text = "保持后台运行（只需设置一次）",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    // 第 1 条最容易被忽略、也最关键：不锁定就可能被划掉
+    Text(
+        text = "① 锁定任务：打开最近任务，把本应用的卡片往下拉，出现锁图标即锁定。" +
+            "不锁定的话，从这里划掉应用等于强制停止，无障碍权限会被系统一并撤销。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    if (ignoringBattery) {
+        Text(
+            text = "② 后台运行：已允许",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    } else {
+        Text(
+            text = "② 允许后台运行，避免系统按省电策略停掉本应用。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            TextButton(
+                onClick = {
+                    // 先用系统标准申请；被 ROM 屏蔽时退回到电池优化列表页
+                    if (!BatteryWhitelist.requestIgnore(context)) {
+                        runCatching {
+                            context.startActivity(BatteryWhitelist.batteryOptimizationSettingsIntent())
+                        }
+                    }
+                },
+            ) { Text("允许后台运行") }
+            TextButton(
+                onClick = {
+                    // 依次尝试已知的小米自启页；全都打不开就退到应用信息
+                    val opened = BatteryWhitelist.miuiAutoStartIntents().any { intent ->
+                        runCatching { context.startActivity(intent) }.isSuccess
+                    }
+                    if (!opened) {
+                        runCatching { context.startActivity(appDetailsIntent(context)) }
+                    }
+                },
+            ) { Text("设置自启动") }
+        }
+    }
+    ShizukuSection()
+}
+
+/**
+ * Shizuku 自动恢复。
+ *
+ * 这是「划掉也不影响」的关键：系统撤销无障碍权限后，
+ * 靠 Shizuku 的 shell 权限周期性把服务写回去（与 Tally 同款做法）。
+ *
+ * 没装 Shizuku 时这里只显示说明，不阻塞其它功能。
+ */
+@Composable
+private fun ShizukuSection() {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var state by remember { mutableStateOf(shizukuState()) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) state = shizukuState()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Spacer(modifier = Modifier.height(Spacing.sm))
+    when (state) {
+        ShizukuUiState.UNAVAILABLE -> Text(
+            text = "③ 可选：装 Shizuku 并授权后，应用被划掉也能自动恢复服务；" +
+                "否则需要你手动重新开启一次无障碍。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        ShizukuUiState.NO_PERMISSION -> {
+            Text(
+                text = "③ 已检测到 Shizuku，授权后可在应用被划掉时自动恢复服务。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = { ShizukuGuard.requestPermission(SHIZUKU_REQUEST_CODE) }) {
+                Text("授权 Shizuku 自动恢复")
+            }
+        }
+
+        ShizukuUiState.READY -> Text(
+            text = "③ 自动恢复：已启用（每 15 分钟巡检一次）",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+private enum class ShizukuUiState { UNAVAILABLE, NO_PERMISSION, READY }
+
+private fun shizukuState(): ShizukuUiState = when {
+    !ShizukuGuard.isAvailable() -> ShizukuUiState.UNAVAILABLE
+    !ShizukuGuard.hasPermission() -> ShizukuUiState.NO_PERMISSION
+    else -> ShizukuUiState.READY
+}
+
+private const val SHIZUKU_REQUEST_CODE = 4001
 
 /** 后台可靠性状态的展示模型。 */
 data class KeepAliveUiState(val text: String, val healthy: Boolean)

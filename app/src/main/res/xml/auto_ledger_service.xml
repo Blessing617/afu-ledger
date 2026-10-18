@@ -10,11 +10,18 @@
   订阅 typeViewClicked 的原因：微信在同一个 Activity 内翻页（聊天 → 账单列表 →
   账单详情）只发内容变化事件，不发窗口状态变化事件。用户翻页必然伴随点击，
   点击事件是「用户主动换了页面」最可靠的信号，用它来突破内容变化的 8 秒节流。
+
+  flagRequestAccessibilityButton 是**保活相关**的，容易被忽略：
+  AOSP 的 AccessibilityManagerService.onPackagesForceStoppedLocked 在处理 force-stop 时，
+  会把带这个 flag 的服务单独归入 continuousServices 走不同处理路径。
+  HyperOS / MIUI 对无障碍服务的 force-stop 很激进（进入超级省电、锁屏清理等都会触发），
+  而被 force-stop 的应用其无障碍权限会被系统一并剥离 ——
+  这才是「设置一次之后过阵子又不生效」的真正原因，而不是权限本身会自己过期。
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewClicked"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagIncludeNotImportantViews|flagRetrieveInteractiveWindows"
+    android:accessibilityFlags="flagIncludeNotImportantViews|flagRetrieveInteractiveWindows|flagRequestAccessibilityButton"
     android:canRetrieveWindowContent="true"
     android:canTakeScreenshot="true"
     android:description="@string/auto_ledger_service_description"
