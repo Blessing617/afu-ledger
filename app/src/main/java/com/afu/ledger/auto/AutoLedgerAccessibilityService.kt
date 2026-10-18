@@ -14,9 +14,9 @@ import com.afu.ledger.AfuApplication
 import com.afu.ledger.BuildConfig
 import com.afu.ledger.MainActivity
 import com.afu.ledger.auto.keepalive.AutoLedgerKeepAlive
-import com.afu.ledger.auto.ocr.OcrModelInstaller
+import com.afu.ledger.auto.ocr.MlKitOcrEngine
+import com.afu.ledger.auto.ocr.OcrEngine
 import com.afu.ledger.auto.ocr.OcrTextChannel
-import com.afu.ledger.auto.ocr.PpOcrEngine
 import com.afu.ledger.auto.ocr.ScreenshotCapturer
 import com.afu.ledger.auto.ocr.ScreenshotThrottle
 import com.afu.ledger.auto.overlay.PaymentConfirmOverlay
@@ -32,7 +32,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -64,7 +63,7 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
     private var confirmController: PaymentConfirmController? = null
     private var logger: AutoLedgerLogger? = null
     private var pendingJob: Job? = null
-    private var ocrEngine: PpOcrEngine? = null
+    private var ocrEngine: OcrEngine? = null
 
     @Volatile
     private var engine: AutoRecognitionEngine? = null
@@ -296,7 +295,7 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
             AutoRecognitionEngine.EngineResult.Skipped -> return
         }
         status.recordOutcome(
-            elapsedMillis = ocrEngine?.lastElapsedMillis ?: -1L,
+            elapsedMillis = recognition.lastTiming?.ocrMillis ?: -1L,
             outcome = outcome,
             detail = timing,
         )
@@ -304,11 +303,20 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
 
     /** 用户打开 OCR 开关后才加载模型：不开启就不必付出内存与解压成本。 */
     private fun ensureOcrChannel(container: AppContainer) {
-        if (!ocrSetupStarted.compareAndSet(false, true)) return
+        if (!ocrSetupStarted.compareAndSet(false, true)) {
+            debugLog("ocr setup already started")
+            return
+        }
+        debugLog("ocr setup begin")
         scope.launch {
             val channel = withContext(Dispatchers.IO) { buildOcrChannel(container) }
-            if (channel == null) ocrSetupStarted.set(false)
-            else engine = AutoRecognitionEngine(this@AutoLedgerAccessibilityService, detector, channel, debugOcrPackage)
+            if (channel == null) {
+                ocrSetupStarted.set(false)
+                debugLog("ocr setup failed")
+            } else {
+                engine = AutoRecognitionEngine(this@AutoLedgerAccessibilityService, detector, channel, debugOcrPackage)
+                debugLog("ocr setup done")
+            }
         }
     }
 
@@ -318,27 +326,22 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
             return null
         }
         return ocrSetupMutex.withLock {
-            val files = OcrModelInstaller.ensureInstalled(
-                targetDir = File(filesDir, "ocr"),
-                assetOpener = { name -> assets.open(name) },
-            )
-            if (files == null) {
-                container.ocrStatus.markUnavailable("OCR 模型解压失败")
-                return@withLock null
-            }
-            val ppEngine = PpOcrEngine(files)
-            if (!ppEngine.warmUp()) {
-                val reason = ppEngine.failureReason() ?: "OCR 模型加载失败"
-                ppEngine.close()
+            // 用 ML Kit 的整页识别替代 PP-OCRv4 的「det + 逐行 rec」。
+            // 真实账单页 30 行文本时，后者光 rec 就要 1.0–1.3 秒；
+            // ML Kit 一次前向就出全部行，没有「逐行」这个阶段。
+            val mlKitEngine = MlKitOcrEngine()
+            if (!mlKitEngine.warmUp()) {
+                val reason = mlKitEngine.failureReason() ?: "OCR 引擎初始化失败"
+                mlKitEngine.close()
                 container.ocrStatus.markUnavailable(reason)
                 return@withLock null
             }
-            ocrEngine = ppEngine
+            ocrEngine = mlKitEngine
             container.ocrStatus.markAvailable()
-            debugLog("ocr channel ready")
+            debugLog("ocr channel ready (mlkit)")
             OcrTextChannel(
                 capturer = ScreenshotCapturer(this, captureExecutor),
-                engine = ppEngine,
+                engine = mlKitEngine,
                 throttle = ScreenshotThrottle(),
             )
         }

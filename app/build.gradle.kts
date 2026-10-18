@@ -25,11 +25,6 @@ android {
         }
     }
 
-    // 模型已是压缩友好的二进制格式，交给 aapt 再压一遍只会拖慢首次解压。
-    androidResources {
-        noCompress.add("ort")
-    }
-
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -81,13 +76,17 @@ dependencies {
 
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.coil.compose)
-    implementation(libs.onnxruntime.mobile)
 
     // 保活：Shizuku 借 shell 权限把被系统移除的无障碍服务写回去（Tally 同款）。
     // 没有 Shizuku 时这部分完全降级，不影响其它功能。
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
     implementation(libs.androidx.work.runtime)
+
+    // ML Kit 中文文字识别（整页一次推理，完全离线）
+    implementation(libs.mlkit.text.chinese)
+    // 让 ML Kit 的 Task 可以用 await()
+    implementation(libs.coroutines.play.services)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

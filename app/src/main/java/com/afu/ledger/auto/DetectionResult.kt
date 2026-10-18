@@ -13,6 +13,7 @@ enum class MissReason(val label: String) {
     UNSUPPORTED_PACKAGE("非受支持应用"),
     NOT_PAYMENT_PAGE("不是支付页面"),
     EXCLUDED_KEYWORD("命中排除词"),
+    MAIN_SCREEN("疑似主界面/列表页"),
     NO_AMOUNT("金额解析失败"),
     AMBIGUOUS_AMOUNT("金额歧义"),
     ZERO_AMOUNT("金额为零"),

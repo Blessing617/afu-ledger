@@ -27,6 +27,12 @@ class OcrTextChannel(
             val captureMillis: Long = 0L,
             /** 纯 OCR 推理耗时（det + rec）。 */
             val ocrMillis: Long = 0L,
+            /** 检测阶段耗时。 */
+            val detMillis: Long = 0L,
+            /** 识别阶段耗时（逐行 / 分档批量）。 */
+            val recMillis: Long = 0L,
+            /** 预过滤掉的框数量（状态栏 / 长单号）。 */
+            val skippedBoxes: Int = 0,
         ) : ReadResult
 
         data class Failed(val reason: MissReason, val detail: String? = null) : ReadResult
@@ -98,6 +104,9 @@ class OcrTextChannel(
             lineCount = sanitized.size,
             captureMillis = captureMillis,
             ocrMillis = ocrMillis,
+            detMillis = engine.lastDetMillis,
+            recMillis = engine.lastRecMillis,
+            skippedBoxes = engine.lastSkippedBoxes,
         )
     }
 
