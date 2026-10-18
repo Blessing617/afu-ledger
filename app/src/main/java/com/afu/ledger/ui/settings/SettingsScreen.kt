@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.Image
@@ -42,8 +43,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import com.afu.ledger.auto.AutoLedgerSettings
 import com.afu.ledger.auto.OcrStatus
 import com.afu.ledger.auto.RecognitionEntry
@@ -113,34 +117,30 @@ fun SettingsScreen(
         // contentType 让滚动时能复用同类型 item 的组合槽位，减少甩动瞬间的重建开销。
         item(key = "theme-color", contentType = "settings-section") {
         SectionCard(icon = Icons.Outlined.Palette, title = "主题色") {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+            // 固定 4 列的居中网格。
+            //
+            // 原先用 FlowRow + 固定 64dp 宽度：8 个色点在某些屏宽下排成 5 + 3，
+            // 最后一行贴着左边，看上去像没对齐 —— 这就是「八个颜色不居中很难看」的由来。
+            // 换成「按 4 个一行切分 + 行内居中」后，任何屏宽都是整齐的两行。
+            Column(
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
-                ThemeColorPresets.forEach { preset ->
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.width(64.dp).clickable { onThemeColorChange(preset.id) },
+                ThemeColorPresets.chunked(COLUMNS).forEach { rowPresets ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(
+                            Spacing.xl,
+                            Alignment.CenterHorizontally,
+                        ),
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .width(40.dp)
-                                .height(40.dp)
-                                .clip(CircleShape)
-                                .background(preset.seed)
-                                .border(
-                                    width = if (preset.id == settings.themeColorId) 3.dp else 0.dp,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    shape = CircleShape,
-                                ),
-                        )
-                        Spacer(modifier = Modifier.height(Spacing.xs))
-                        Text(
-                            text = preset.label,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (preset.id == settings.themeColorId) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        rowPresets.forEach { preset ->
+                            ThemeColorDot(
+                                preset = preset,
+                                selected = preset.id == settings.themeColorId,
+                                onClick = { onThemeColorChange(preset.id) },
+                            )
+                        }
                     }
                 }
             }
@@ -163,6 +163,15 @@ fun SettingsScreen(
 
         item(key = "background", contentType = "settings-section") {
         SectionCard(icon = Icons.Outlined.Image, title = "背景图") {
+            BackgroundPreview(
+                uri = settings.backgroundUri,
+                onPick = {
+                    pickImage.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                },
+            )
+            Spacer(Modifier.height(Spacing.sm))
             Text(
                 text = if (settings.backgroundUri == null) "当前使用主题色渐变背景" else "已设置自定义背景图",
                 style = MaterialTheme.typography.bodyMedium,
@@ -175,7 +184,7 @@ fun SettingsScreen(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
                     },
-                ) { Text("从相册选择") }
+                ) { Text(if (settings.backgroundUri == null) "从相册选择" else "更换图片") }
                 if (settings.backgroundUri != null) {
                     TextButton(onClick = onBackgroundReset) { Text("恢复默认") }
                 }
@@ -278,4 +287,86 @@ private fun darkModeLabel(mode: DarkModeSetting): String = when (mode) {
     DarkModeSetting.SYSTEM -> "跟随系统"
     DarkModeSetting.LIGHT -> "浅色"
     DarkModeSetting.DARK -> "深色"
+}
+
+/** 主题色板一行放几个。固定值才能保证「两行各四个、整体居中」。 */
+private const val COLUMNS = 4
+
+/** 一个主题色点：色块 + 名字，整块可点。 */
+@Composable
+private fun ThemeColorDot(
+    preset: com.afu.ledger.ui.theme.ThemeColorPreset,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(64.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = Spacing.xs),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(44.dp)
+                .height(44.dp)
+                .clip(CircleShape)
+                .background(preset.seed)
+                .border(
+                    width = if (selected) 3.dp else 0.dp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    shape = CircleShape,
+                ),
+        )
+        Spacer(modifier = Modifier.height(Spacing.xs))
+        Text(
+            text = preset.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
+}
+
+/**
+ * 背景预览：选图前先看见「会变成什么样」。
+ *
+ * 之前只有一行「当前使用主题色渐变背景」的文字 + 两个文字按钮，
+ * 用户选完图才知道效果。现在缩略图就是入口，点图即换图。
+ */
+@Composable
+private fun BackgroundPreview(uri: String?, onPick: () -> Unit) {
+    val primary = MaterialTheme.colorScheme.primary
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(120.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(primary.copy(alpha = 0.22f), primary.copy(alpha = 0.06f)),
+                ),
+            )
+            .clickable(onClick = onPick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (uri != null) {
+            AsyncImage(
+                model = uri,
+                contentDescription = "背景预览",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text(
+                text = "点这里选一张图",
+                style = MaterialTheme.typography.bodyMedium,
+                color = primary,
+            )
+        }
+    }
 }

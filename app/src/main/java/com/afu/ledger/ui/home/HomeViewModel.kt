@@ -11,12 +11,15 @@ import com.afu.ledger.domain.model.Money
 import com.afu.ledger.domain.model.Transaction
 import com.afu.ledger.domain.model.TransType
 import com.afu.ledger.util.DateFormatter
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 
 class HomeViewModel(
@@ -25,12 +28,21 @@ class HomeViewModel(
     private val accountRepository: AccountRepository,
 ) : ViewModel() {
 
+    /** 月历的月份 + 选中日期。合在一起是为了少占一个 combine 位。 */
+    private data class DateFilter(
+        val month: YearMonth = YearMonth.now(),
+        val selected: LocalDate? = null,
+    )
+
+    private val filter = MutableStateFlow(DateFilter())
+
     val uiState: StateFlow<HomeUiState> = combine(
         transactionRepository.observeAll(),
         categoryRepository.observeAll(),
         accountRepository.observeActive(),
-    ) { transactions, categories, accounts ->
-        buildState(transactions, categories, accounts)
+        filter,
+    ) { transactions, categories, accounts, currentFilter ->
+        buildState(transactions, categories, accounts, currentFilter)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -41,15 +53,39 @@ class HomeViewModel(
         viewModelScope.launch { transactionRepository.delete(id) }
     }
 
+    /** 选中某一天；传 null 表示取消筛选。 */
+    fun selectDate(date: LocalDate?) {
+        filter.value = filter.value.copy(selected = date)
+    }
+
+    /** 切换月历月份。跨月时清掉选中日期，否则会筛出「上个月的今天」。 */
+    fun changeMonth(month: YearMonth) {
+        filter.value = DateFilter(month = month, selected = null)
+    }
+
+    fun showCurrentMonth() {
+        filter.value = DateFilter(month = YearMonth.now(), selected = null)
+    }
+
     private fun buildState(
         transactions: List<Transaction>,
         categories: List<Category>,
         accounts: List<Account>,
+        filter: DateFilter,
     ): HomeUiState {
         val categoryById = categories.associateBy { it.id }
         val accountById = accounts.associateBy { it.id }
+        val zone = ZoneId.systemDefault()
 
-        val groups = transactions
+        // 选中某天时只展示那天的账；否则展示全部（保持原来「往回翻历史」的用法）
+        val visible = filter.selected?.let { date ->
+            val dayKey = DateFormatter.dayKey(
+                date.atStartOfDay(zone).toInstant().toEpochMilli(),
+            )
+            transactions.filter { DateFormatter.dayKey(it.occurredAt) == dayKey }
+        } ?: transactions
+
+        val groups = visible
             .groupBy { DateFormatter.dayKey(it.occurredAt) }
             .toSortedMap(compareByDescending { it })
             .map { (dayKey, dayTransactions) ->
@@ -76,27 +112,39 @@ class HomeViewModel(
                 )
             }
 
-        val (monthIncome, monthExpense) = currentMonthTotals(transactions)
+        val monthTransactions = transactions.filter {
+            YearMonth.from(Instant.ofEpochMilli(it.occurredAt).atZone(zone).toLocalDate()) == filter.month
+        }
+        val income = monthTransactions.filter { it.type == TransType.INCOME }.sumOf { it.amount.cents }
+        val expense = monthTransactions.filter { it.type == TransType.EXPENSE }.sumOf { it.amount.cents }
 
         return HomeUiState(
             groups = groups,
-            monthIncome = monthIncome,
-            monthExpense = monthExpense,
+            monthIncome = Money(income),
+            monthExpense = Money(expense),
             hasAccounts = accounts.isNotEmpty(),
             loaded = true,
+            calendarMonth = filter.month,
+            selectedDate = filter.selected,
+            calendarDays = buildCalendarDays(monthTransactions, zone),
         )
     }
 
-    private fun currentMonthTotals(transactions: List<Transaction>): Pair<Money, Money> {
-        val zone = ZoneId.systemDefault()
-        val today = LocalDate.now(zone)
-        val monthStart = today.withDayOfMonth(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        val nextMonthStart = today.withDayOfMonth(1).plusMonths(1)
-            .atStartOfDay(zone).toInstant().toEpochMilli()
-
-        val inMonth = transactions.filter { it.occurredAt in monthStart until nextMonthStart }
-        val income = inMonth.filter { it.type == TransType.INCOME }.sumOf { it.amount.cents }
-        val expense = inMonth.filter { it.type == TransType.EXPENSE }.sumOf { it.amount.cents }
-        return Money(income) to Money(expense)
+    private fun buildCalendarDays(
+        monthTransactions: List<Transaction>,
+        zone: ZoneId,
+    ): Map<Int, DaySummary> {
+        if (monthTransactions.isEmpty()) return emptyMap()
+        val result = HashMap<Int, DaySummary>(31)
+        monthTransactions.forEach { transaction ->
+            val day = Instant.ofEpochMilli(transaction.occurredAt).atZone(zone).dayOfMonth
+            val current = result[day] ?: DaySummary()
+            result[day] = if (transaction.type == TransType.INCOME) {
+                current.copy(incomeCents = current.incomeCents + transaction.amount.cents)
+            } else {
+                current.copy(expenseCents = current.expenseCents + transaction.amount.cents)
+            }
+        }
+        return result
     }
 }

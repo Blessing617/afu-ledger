@@ -72,6 +72,8 @@ import com.afu.ledger.ui.home.HomeScreen
 import com.afu.ledger.ui.home.HomeViewModel
 import com.afu.ledger.ui.record.RecordScreen
 import com.afu.ledger.ui.record.RecordViewModel
+import com.afu.ledger.ui.report.ReportScreen
+import com.afu.ledger.ui.report.ReportViewModel
 import com.afu.ledger.ui.settings.SettingsScreen
 import com.afu.ledger.ui.settings.SettingsViewModel
 import com.afu.ledger.ui.settings.rememberAutoLedgerServiceEnabled
@@ -160,6 +162,7 @@ fun AfuApp(container: AppContainer) {
                         onAddTransaction = { recordTarget = -1L },
                         onCreateAccount = { currentTab = "assets" },
                         onEditTransaction = { id -> recordTarget = id },
+                        onOpenReport = { navController.navigate("report") },
                     )
                 }
                 TabPage(route = "assets", current = currentTab) {
@@ -247,6 +250,9 @@ fun AfuApp(container: AppContainer) {
                     composable(TAB_HOST) { /* 占位：标签页在 NavHost 之外 */ }
                     composable("categories") {
                         CategoryRoute(container = container, onBack = { navController.popBackStack() })
+                    }
+                    composable("report") {
+                        ReportRoute(container = container, onBack = { navController.popBackStack() })
                     }
                 }
 
@@ -389,6 +395,7 @@ private fun HomeRoute(
     onAddTransaction: () -> Unit,
     onCreateAccount: () -> Unit,
     onEditTransaction: (Long) -> Unit,
+    onOpenReport: () -> Unit,
 ) {
     val viewModel: HomeViewModel = viewModel(
         factory = viewModelFactory {
@@ -408,6 +415,33 @@ private fun HomeRoute(
         onAddTransaction = onAddTransaction,
         onCreateAccount = onCreateAccount,
         onTransactionClick = onEditTransaction,
+        onOpenReport = onOpenReport,
+        onSelectDate = viewModel::selectDate,
+        onMonthChange = viewModel::changeMonth,
+    )
+}
+
+/** 报表是二级页面：从首页滑入，返回时滑出。 */
+@Composable
+private fun ReportRoute(container: AppContainer, onBack: () -> Unit) {
+    val viewModel: ReportViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer {
+                ReportViewModel(
+                    transactionRepository = container.transactionRepository,
+                    categoryRepository = container.categoryRepository,
+                )
+            }
+        },
+    )
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    ReportScreen(
+        uiState = uiState,
+        onBack = onBack,
+        onPreviousMonth = viewModel::previousMonth,
+        onNextMonth = viewModel::nextMonth,
+        onCurrentMonth = viewModel::goToCurrentMonth,
     )
 }
 

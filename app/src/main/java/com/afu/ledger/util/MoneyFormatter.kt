@@ -16,8 +16,17 @@ object MoneyFormatter {
         return yuanFormat.format(yuan)
     }
 
-    /** 带货币符号，例："¥12,345.67"。 */
-    fun formatWithSymbol(money: Money): String = "¥" + formatYuan(money.cents)
+    /**
+     * 带货币符号，例："¥12,345.67"；负数写成 "-¥12,345.67"。
+     *
+     * 负号必须在货币符号**前面**：`¥-65.90` 是把符号当成数字的一部分，
+     * 中文语境下读起来像排版错误（真机上第一眼就是这个观感）。
+     */
+    fun formatWithSymbol(money: Money): String {
+        val negative = money.cents < 0
+        val body = formatYuan(money.abs().cents)
+        return if (negative) "-¥$body" else "¥$body"
+    }
 
     /** 带正负号，用于收支展示，例：支出 → "-25.50"，收入 → "+25.50"。 */
     fun formatSigned(money: Money, isExpense: Boolean): String {

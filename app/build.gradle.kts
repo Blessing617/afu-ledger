@@ -14,8 +14,8 @@ android {
         applicationId = "com.afu.ledger"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -32,6 +32,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 自用应用：release 也用 debug 签名，这样 `assembleRelease` 出来的包能直接
+            // `adb install` 到自己的手机上，不必维护一套私钥。
+            // 发布到应用商店前必须换成正式签名。
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

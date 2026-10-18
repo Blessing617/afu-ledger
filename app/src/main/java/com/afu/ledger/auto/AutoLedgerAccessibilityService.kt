@@ -91,6 +91,10 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
     @Volatile
     private var themeSettings = ThemeSettings()
 
+    /** 上一次尝试初始化 OCR 的时刻，用于失败后的退避重试。 */
+    @Volatile
+    private var lastOcrSetupAttemptAt: Long = 0L
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         val app = application as AfuApplication
@@ -118,6 +122,7 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
             container = app.container,
             overlay = activeOverlay,
             deduper = DetectionDeduper(),
+            processedBills = app.container.processedBills,
             scope = scope,
             settingsProvider = { settings },
             themeProvider = { themeSettings },
@@ -164,9 +169,20 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         val packageName = event.packageName?.toString() ?: return
         // 心跳：任何事件都刷新「最近活跃时间」，用于让冻结可被发现
         AutoLedgerKeepAlive.onAccessibilityEvent()
+
+        // 前台窗口变化：卡片只在触发它的受支持应用里有效。
+        // 必须放在 enabled 判断**之前** —— 用户关掉总开关后残留的卡片也要能收起。
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            confirmController?.onWindowPackageChanged(packageName)
+        }
+
         debugLog("event pkg=$packageName enabled=${settings.enabled} type=${event.eventType}")
         if (!settings.enabled) return
         if (!isSupportedPackage(packageName)) return
+
+        // OCR 初始化失败后要能自愈：ML Kit 首次加载在低内存时可能失败，
+        // 之前失败一次就永久「不可用」，只能靠用户手动关开开关 —— 真机上那就是「OCR 状态不可用」。
+        maybeRetryOcrSetup()
 
         val clicked = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED
         val kind = when (event.eventType) {
@@ -187,7 +203,13 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         // 「换页」信号必须累积到真正判定那一刻：微信切页后会继续刷一串内容变化事件，
         // 每次都 cancel 上一个 debounce 任务，如果只保留最后一次事件的标记，
         // 点击带来的「换页」就被后面的内容事件冲掉了，结果又被 8 秒节流拦下（实测踩过）。
-        if (clicked || classChanged) pageChangePending = true
+        if (clicked || classChanged) {
+            pageChangePending = true
+            // 用户点了东西：上一页的确认卡片已经没有意义，先收起再判定。
+            // 不跟 classChanged 走：微信页面渲染过程中 className 会反复变化，
+            // 按它收起会让卡片刚弹出就被自己关掉（实测表现为「卡片闪一下就没」）。
+            if (clicked) confirmController?.onPageChanged()
+        }
 
         // 页面渲染往往连续触发多个事件，合并到一次识别；这同时是「页面已稳定」的判定。
         //
@@ -301,9 +323,23 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         )
     }
 
+    /**
+     * OCR 未就绪时按最小间隔重试初始化。
+     *
+     * 只在有受支持应用事件时触发，且 30 秒一次，避免反复加载模型拖慢页面。
+     */
+    private fun maybeRetryOcrSetup() {
+        if (!settings.ocrEnabled) return
+        if (engine?.ocrAvailable == true) return
+        val app = application as? AfuApplication ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastOcrSetupAttemptAt < OCR_SETUP_RETRY_MILLIS) return
+        lastOcrSetupAttemptAt = now
+        ensureOcrChannel(app.container)
+    }
+
     /** 用户打开 OCR 开关后才加载模型：不开启就不必付出内存与解压成本。 */
-    private fun ensureOcrChannel(container: AppContainer) {
-        if (!ocrSetupStarted.compareAndSet(false, true)) {
+    private fun ensureOcrChannel(container: AppContainer) {        if (!ocrSetupStarted.compareAndSet(false, true)) {
             debugLog("ocr setup already started")
             return
         }
@@ -382,5 +418,8 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
          * 这是支付宝与微信识别延迟里最容易省掉的一段。
          */
         const val DEBOUNCE_AFTER_USER_ACTION_MILLIS = 180L
+
+        /** OCR 初始化失败后的重试间隔。 */
+        const val OCR_SETUP_RETRY_MILLIS = 30_000L
     }
 }

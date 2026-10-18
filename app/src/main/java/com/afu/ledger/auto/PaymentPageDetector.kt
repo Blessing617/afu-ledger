@@ -1,7 +1,7 @@
 package com.afu.ledger.auto
 
 /**
- * 判定当前页面是不是支付结果页，并提取金额与商户名。
+ * 判定当前页面是不是**账单详情页 / 支付结果页**，并提取金额、商户名与交易单号。
  *
  * 纯 Kotlin，无 Android 依赖，可直接单测。
  *
@@ -19,31 +19,34 @@ class PaymentPageDetector(
             return DetectionResult.Missed(MissReason.UNSUPPORTED_PACKAGE)
         }
 
-        val pageText = snapshot.texts.joinToString(separator = "\n")
+        val texts = snapshot.texts
+        val pageText = texts.joinToString(separator = "\n")
+
+        // ① 排除：明确指向「另一笔交易」的状态词
         if (PaymentPageRules.excludedKeywords.any { pageText.contains(it) }) {
             return DetectionResult.Missed(MissReason.EXCLUDED_KEYWORD)
         }
 
-        // 主界面 / 列表页先排除。
-        //
-        // 支付宝首页的「最近消息」区会列出历史通知文本（「天猫 / 付款成功 / ¥25.00」），
-        // 只看特征词 + 金额会把它误判成支付结果页；支付结果页是独立页面，
-        // 不会同时出现「扫一扫 / 收付款 / 卡包」这类主界面固定入口。
-        // 这一步必须放在匹配规则**之前**：一旦先命中规则，后面就只会去解析金额与商户名，
-        // 而错的是「这是支付页」这个判断本身。
-        val mainScreenHits = PaymentPageRules.mainScreenKeywords.count { pageText.contains(it) }
-        if (mainScreenHits >= PaymentPageRules.MIN_MAIN_SCREEN_HITS) {
+        // ② 排除：列表页。词表 + 「多行日期时间」双判据。
+        //    列表页上每一笔交易都带金额与日期，只要放行必然记错账。
+        if (isListPage(texts, pageText)) {
             return DetectionResult.Missed(MissReason.MAIN_SCREEN)
         }
 
+        // ③ 排除：主界面 / 我的页。这些页面的「最近消息」「入口九宫格」会混进历史通知，
+        //    真机上表现为「停在支付宝我的页却弹出 ¥25.00，商户名是广告文案」。
+        val homeHits = PaymentPageRules.homeOrMyKeywords.count { pageText.contains(it) }
+        if (homeHits >= PaymentPageRules.MIN_HOME_SCREEN_HITS) {
+            return DetectionResult.Missed(MissReason.MAIN_SCREEN)
+        }
+
+        // ④ 强证据：必须是账单详情页，或明确的支付结果页
         val pageType = classifyPage(pageText)
             ?: return DetectionResult.Missed(MissReason.NOT_PAYMENT_PAGE)
 
-        // 金额唯一才命中 —— 这是本项目的安全底线：
-        // 页面同时出现两个不同金额时直接放弃，宁可漏记也不记错。
-        // （Tally 的做法是多金额时按评分选一个，我们刻意不采纳这一条。）
+        // ⑤ 金额唯一才命中 —— 本项目的安全底线：宁可漏记也不记错。
         val amounts = AmountParser.parseTransactionAmounts(
-            texts = snapshot.texts,
+            texts = texts,
             allowBareAmount = pageType == PaymentPageType.BILL_DETAIL,
         )
         return when {
@@ -55,7 +58,9 @@ class PaymentPageDetector(
                 DetectionResult.Hit(
                     PaymentDraft(
                         amount = amount,
-                        merchant = MerchantExtractor.extract(snapshot.texts, amount),
+                        merchant = MerchantExtractor.extract(texts, amount),
+                        tradeNo = TradeNoExtractor.extract(texts),
+                        source = PaymentPageRules.sourceLabel(snapshot.packageName),
                         sourcePackage = snapshot.packageName,
                         pageType = pageType,
                         capturedAt = System.currentTimeMillis(),
@@ -66,39 +71,40 @@ class PaymentPageDetector(
     }
 
     /**
-     * 判断这是什么页面，返回 null 表示不像交易页面。
+     * 列表页判定。
      *
-     * 判据分两级（学 Tally 的「关键词」思路，但保留强/弱特征的区分）：
+     * 两个信号任一成立即算列表页：
+     * - 列表页专属文案命中 ≥ [PaymentPageRules.MIN_LIST_PAGE_HITS] 个
+     * - 页面里出现 ≥ [PaymentPageRules.LIST_PAGE_MIN_TIMESTAMP_LINES] 行「日期 + 时间」
+     */
+    private fun isListPage(texts: List<String>, pageText: String): Boolean {
+        val keywordHits = PaymentPageRules.listPageKeywords.count { pageText.contains(it) }
+        if (keywordHits >= PaymentPageRules.MIN_LIST_PAGE_HITS) return true
+
+        val timestampLines = texts.count { PaymentPageRules.timestampLinePattern.containsMatchIn(it) }
+        return timestampLines >= PaymentPageRules.LIST_PAGE_MIN_TIMESTAMP_LINES
+    }
+
+    /**
+     * 判断这是什么页面，返回 null 表示不像账单/支付页面。
      *
-     * 1. **强特征**：命中「支付成功」「账单详情」这类明确的页面标题词 → 直接认定
-     * 2. **弱特征**：命中「交易 / 订单 / 商品说明 / 付款方式」这类通用交易词汇，
-     *    且数量达到 [PaymentPageRules.MIN_TRADE_KEYWORD_HITS] → 认为是交易详情页
+     * 账单详情页必须由**专属证据**证明：
+     * - 标题命中「账单详情」这类词，或
+     * - 专属字段（交易单号 / 商户单号 / 收单机构…）命中 ≥ 2 个
      *
-     * 第 2 级是为了覆盖标题不规范的真实页面：支付宝的「余额明细详情」页
-     * 标题既不是「支付成功」也不是「账单详情」，但它有金额、有交易号，
-     * 属于应当识别的账单页。
+     * 只靠「交易 / 订单 / 金额」这类通用词凑数**不再放行** ——
+     * 那正是「支付宝我的页被误判」的根因：那个页面同时出现「账单」「交易」两个词。
      */
     private fun classifyPage(pageText: String): PaymentPageType? {
-        // 强特征：账单详情优先判定（仅 debug）。
-        //
-        // 真实账单详情页里常带「支付成功」这个状态文案，如果先按支付结果页匹配，
-        // 就会因为裸金额（`-25.50`）不被接受而漏掉。
-        //
-        // **故意只在 debug 生效**：账单详情 / 余额明细是**历史记录**，
-        // 用户刚才付款那一刻已经记过一笔了。在账单页再弹一次确认卡片，
-        // 等于引导他重复入账 —— 而历史账单的去重（时间、金额都可能不同）拦不住。
-        // 所以发布版只认「支付结果页」这个真正的支付时点。
-        if (allowDebugRules && PaymentPageRules.billKeywords.any { pageText.contains(it) }) {
+        if (PaymentPageRules.billTitleKeywords.any { pageText.contains(it) }) {
+            return PaymentPageType.BILL_DETAIL
+        }
+        val fieldHits = PaymentPageRules.billStrongFields.count { pageText.contains(it) }
+        if (fieldHits >= PaymentPageRules.MIN_BILL_FIELD_HITS) {
             return PaymentPageType.BILL_DETAIL
         }
         if (PaymentPageRules.resultKeywords.any { pageText.contains(it) }) {
             return PaymentPageType.PAYMENT_RESULT
-        }
-        // 发布版不加载账单规则，但「余额明细详情」这类页面对发布版同样有价值，
-        // 因此走弱特征路径识别。此时按支付结果页处理（不接受裸金额），更保守。
-        val tradeHits = PaymentPageRules.tradeKeywords.count { pageText.contains(it) }
-        if (tradeHits >= PaymentPageRules.MIN_TRADE_KEYWORD_HITS) {
-            return if (allowDebugRules) PaymentPageType.BILL_DETAIL else PaymentPageType.PAYMENT_RESULT
         }
         return null
     }
