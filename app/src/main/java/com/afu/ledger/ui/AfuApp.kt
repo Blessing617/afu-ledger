@@ -1,5 +1,6 @@
 package com.afu.ledger.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -20,7 +21,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -34,7 +37,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import coil3.compose.AsyncImage
 import com.afu.ledger.data.AppContainer
+import com.afu.ledger.data.prefs.ThemeSettings
 import com.afu.ledger.domain.model.AccountWithBalance
 import com.afu.ledger.ui.assets.AccountEditorDialog
 import com.afu.ledger.ui.assets.AssetsScreen
@@ -43,6 +48,8 @@ import com.afu.ledger.ui.home.HomeScreen
 import com.afu.ledger.ui.home.HomeViewModel
 import com.afu.ledger.ui.record.RecordScreen
 import com.afu.ledger.ui.record.RecordViewModel
+import com.afu.ledger.ui.settings.SettingsScreen
+import com.afu.ledger.ui.settings.SettingsViewModel
 
 private data class BottomTab(val route: String, val label: String, val icon: ImageVector)
 
@@ -59,54 +66,87 @@ fun AfuApp(container: AppContainer) {
     val currentRoute = backStackEntry?.destination?.route
     val showBottomBar = bottomTabs.any { it.route == currentRoute }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        bottomBar = {
-            if (showBottomBar) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    bottomTabs.forEach { tab ->
-                        val selected = backStackEntry?.destination?.hierarchy
-                            ?.any { it.route == tab.route } == true
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = { navController.navigateToTab(tab.route) },
-                            icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(tab.label) },
-                        )
+    val themeSettings by container.themePreferences.settings
+        .collectAsStateWithLifecycle(initialValue = ThemeSettings())
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 自定义背景图：图片 + 可读性遮罩
+        themeSettings.backgroundUri?.let { uri ->
+            AsyncImage(
+                model = uri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.88f)),
+            )
+        }
+
+        Scaffold(
+            containerColor = if (themeSettings.backgroundUri == null) {
+                MaterialTheme.colorScheme.background
+            } else {
+                Color.Transparent
+            },
+            bottomBar = {
+                if (showBottomBar) {
+                    NavigationBar(
+                        containerColor = if (themeSettings.backgroundUri == null) {
+                            MaterialTheme.colorScheme.surface
+                        } else {
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+                        },
+                    ) {
+                        bottomTabs.forEach { tab ->
+                            val selected = backStackEntry?.destination?.hierarchy
+                                ?.any { it.route == tab.route } == true
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = { navController.navigateToTab(tab.route) },
+                                icon = { Icon(tab.icon, contentDescription = null) },
+                                label = { Text(tab.label) },
+                            )
+                        }
                     }
                 }
-            }
-        },
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = "home",
-            modifier = Modifier.padding(innerPadding),
-        ) {
-            composable("home") {
-                HomeRoute(container = container, navController = navController)
-            }
-            composable("assets") {
-                AssetsRoute(container = container)
-            }
-            composable("settings") {
-                PlaceholderScreen(title = "设置", hint = "个性化设置即将上线")
-            }
-            composable(
-                route = "record?transactionId={transactionId}",
-                arguments = listOf(
-                    navArgument("transactionId") {
-                        type = NavType.LongType
-                        defaultValue = -1L
-                    },
-                ),
-            ) { entry ->
-                val id = entry.arguments?.getLong("transactionId") ?: -1L
-                RecordRoute(
-                    container = container,
-                    editingTransactionId = if (id > 0L) id else null,
-                    onBack = { navController.popBackStack() },
-                )
+            },
+        ) { innerPadding ->
+            NavHost(
+                navController = navController,
+                startDestination = "home",
+                modifier = Modifier.padding(innerPadding),
+            ) {
+                composable("home") {
+                    HomeRoute(container = container, navController = navController)
+                }
+                composable("assets") {
+                    AssetsRoute(container = container)
+                }
+                composable("settings") {
+                    SettingsRoute(container = container, navController = navController)
+                }
+                composable(
+                    route = "record?transactionId={transactionId}",
+                    arguments = listOf(
+                        navArgument("transactionId") {
+                            type = NavType.LongType
+                            defaultValue = -1L
+                        },
+                    ),
+                ) { entry ->
+                    val id = entry.arguments?.getLong("transactionId") ?: -1L
+                    RecordRoute(
+                        container = container,
+                        editingTransactionId = if (id > 0L) id else null,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable("categories") {
+                    PlaceholderScreen(title = "分类管理", hint = "即将上线")
+                }
             }
         }
     }
@@ -186,6 +226,25 @@ private fun AssetsRoute(container: AppContainer) {
             },
         )
     }
+}
+
+@Composable
+private fun SettingsRoute(container: AppContainer, navController: NavHostController) {
+    val viewModel: SettingsViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer { SettingsViewModel(container.themePreferences) }
+        },
+    )
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+
+    SettingsScreen(
+        settings = settings,
+        onThemeColorChange = viewModel::setThemeColor,
+        onDarkModeChange = viewModel::setDarkMode,
+        onBackgroundPick = viewModel::setBackgroundUri,
+        onBackgroundReset = { viewModel.setBackgroundUri(null) },
+        onManageCategories = { navController.navigate("categories") },
+    )
 }
 
 @Composable
