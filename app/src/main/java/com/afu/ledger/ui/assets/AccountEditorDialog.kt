@@ -59,7 +59,7 @@ fun AccountEditorDialog(
     onArchiveToggle: ((Boolean) -> Unit)? = null,
 ) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
-    var type by remember { mutableStateOf(existing?.type ?: AccountType.CASH) }
+    var type by remember { mutableStateOf(existing?.type ?: AccountType.WECHAT) }
     var balanceInput by remember {
         mutableStateOf(
             existing?.initialBalance?.let { money ->
@@ -94,7 +94,7 @@ fun AccountEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     AccountType.entries.forEach { candidate ->
                         FilterChip(
                             selected = type == candidate,
@@ -182,7 +182,9 @@ fun AccountEditorDialog(
 }
 
 private fun accountTypeText(type: AccountType): String = when (type) {
-    AccountType.CASH -> "现金"
+    AccountType.WECHAT -> "微信"
+    AccountType.ALIPAY -> "支付宝"
     AccountType.BANK -> "银行卡"
+    AccountType.CASH -> "现金"
     AccountType.CREDIT -> "信用卡"
 }

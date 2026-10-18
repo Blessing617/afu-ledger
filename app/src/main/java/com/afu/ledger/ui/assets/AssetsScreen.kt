@@ -177,7 +177,9 @@ private fun AccountRow(
 }
 
 private fun accountTypeLabel(type: AccountType): String = when (type) {
-    AccountType.CASH -> "现金"
+    AccountType.WECHAT -> "微信"
+    AccountType.ALIPAY -> "支付宝"
     AccountType.BANK -> "银行卡"
+    AccountType.CASH -> "现金"
     AccountType.CREDIT -> "信用卡"
 }
