@@ -2,24 +2,6 @@ package com.afu.ledger.auto.ocr
 
 import android.graphics.Bitmap
 
-/**
- * 待识别的位图像素。
- *
- * 用于**纯逻辑**阶段（裁切、后处理），刻意不依赖 `android.graphics.Bitmap`，
- * 才能在 JVM 上单测。真正的缩放由 [BitmapScaler] 在 native 侧完成。
- */
-class OcrImage(
-    val width: Int,
-    val height: Int,
-    val argb: IntArray,
-) {
-    init {
-        require(argb.size == width * height) {
-            "argb 长度 ${argb.size} 与 ${width}x$height 不匹配"
-        }
-    }
-}
-
 /** 一行 OCR 结果。坐标是原图坐标系，供 [OcrLineBuilder] 排序与合并。 */
 data class OcrLine(
     val text: String,
@@ -49,4 +31,17 @@ interface OcrEngine {
     suspend fun warmUp(): Boolean
 
     fun close()
+
+    /**
+     * 上一次识别的分段耗时，供日志定位瓶颈。
+     *
+     * 默认给 -1（表示实现不提供），这样纯逻辑的测试替身不必实现它。
+     * 真实引擎会覆盖这两个值：只看总耗时没法判断该优化检测还是识别。
+     */
+    val lastDetMillis: Long get() = -1L
+
+    val lastRecMillis: Long get() = -1L
+
+    /** 上一次识别里被预过滤掉的框数量。 */
+    val lastSkippedBoxes: Int get() = 0
 }
