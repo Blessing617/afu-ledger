@@ -1,5 +1,8 @@
 package com.afu.ledger.ui.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -466,6 +469,47 @@ private fun KeepAliveStatusLine(state: KeepAliveUiState) {
             Text("去重新开启无障碍服务")
         }
     }
+    NotificationPermissionHint()
+}
+
+/**
+ * 通知权限被关时给出降级说明。
+ *
+ * 后台可靠性**不依赖**通知权限 —— 无损的是「失效时你能收到提醒」这条能力。
+ * 权限被关时前台服务仍会运行（Android 会隐式展示一个低优先级条目），
+ * 但我们发出的「已失效」告警会看不见，用户就回到「它什么时候坏的我不知道」。
+ * 所以这里要明说，而不是静默降级。
+ */
+@Composable
+private fun NotificationPermissionHint() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    val context = LocalContext.current
+    var granted by remember {
+        mutableStateOf(
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                granted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    if (granted) return
+
+    Text(
+        text = "提示：通知权限已关闭。自动记账本身仍可用，但服务失效时你不会收到提醒，" +
+            "会以为它一直在工作。建议到应用信息里允许通知。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+    )
 }
 
 /**
