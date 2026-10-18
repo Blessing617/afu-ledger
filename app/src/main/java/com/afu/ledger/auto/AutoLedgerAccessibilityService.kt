@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
 import androidx.compose.runtime.mutableStateOf
 import com.afu.ledger.AfuApplication
@@ -100,7 +101,7 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
             (BuildConfig.DEBUG && packageName == this.packageName)
 
     private fun inspectWindow(packageName: String) {
-        val snapshot = PageSnapshot(packageName, NodeTextCollector.collect(rootInActiveWindow))
+        val snapshot = collectSnapshot(packageName)
         debugLog("inspect texts=${snapshot.texts.size} ${snapshot.texts.take(10)}")
         when (val result = detector.detect(snapshot)) {
             is DetectionResult.Hit -> handleHit(result.draft)
@@ -109,6 +110,28 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
                 logMiss(packageName, result.reason)
             }
         }
+    }
+
+    /**
+     * 采集当前页面文本。
+     *
+     * 除了活动窗口，还会遍历所有窗口，并且已经把「不重要视图」包含进来——
+     * 有些自绘应用的文本会挂在 importantForAccessibility=no 的节点或子窗口里。
+     * 微信实测仍然读不到（见 design.md），那部分要靠截图 OCR，不在本次范围。
+     */
+    private fun collectSnapshot(packageName: String): PageSnapshot {
+        val texts = LinkedHashSet<String>()
+        rootInActiveWindow?.let { texts.addAll(NodeTextCollector.collect(it)) }
+
+        windows?.forEach { window ->
+            // 别把自己的确认卡片也读进来，否则「自动记账」「账户」「分类」会污染解析
+            if (window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) return@forEach
+            val windowRoot = runCatching { window.root }.getOrNull() ?: return@forEach
+            if (windowRoot.packageName?.toString() != packageName) return@forEach
+            texts.addAll(NodeTextCollector.collect(windowRoot))
+        }
+
+        return PageSnapshot(packageName, texts.toList())
     }
 
     private fun handleHit(draft: PaymentDraft) {

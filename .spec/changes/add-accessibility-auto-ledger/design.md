@@ -154,6 +154,8 @@ DataStore 新键（沿用 `ThemePreferences` 的写法，放到独立的 `AutoLe
 
 附带发现：安装新 APK 后无障碍服务可能不会自动重绑，需要用户重新开启；HyperOS 冻结服务时进程仍在、`dumpsys` 也显示 bound，但事件不再送达。
 
+截图通路已验证：service 配置加上 `android:canTakeScreenshot="true"` 后，`AccessibilityService.takeScreenshot()` 在 HyperOS + Android 16 上成功返回 1440×3200 画面（未声明该能力时返回 `Services don't have the capability of taking the screenshot`）。微信页面文字在截图中清晰可辨，**截图 + 离线 OCR 是微信唯一可行的自动记账路线**，但属于独立变更（成本：离线 OCR 模型 15–30 MB、单次识别数百毫秒、需要做页面触发节流与识别纠错）。
+
 ## 测试策略（不产生真实支付）
 
 **不要求真实付款**：支付流程不可自动化、还会真的花钱，验证一律走下面三条数据来源。
