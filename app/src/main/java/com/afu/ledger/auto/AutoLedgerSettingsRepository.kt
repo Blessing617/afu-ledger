@@ -31,6 +31,7 @@ class AutoLedgerSettingsRepository(
                 defaultAccountId = prefs[KEY_DEFAULT_ACCOUNT],
                 defaultCategoryId = prefs[KEY_DEFAULT_CATEGORY],
                 recognitionLogEnabled = prefs[KEY_RECOGNITION_LOG] ?: false,
+                ocrEnabled = prefs[KEY_OCR_ENABLED] ?: false,
             )
         }
 
@@ -55,10 +56,15 @@ class AutoLedgerSettingsRepository(
         context.autoLedgerDataStore.edit { it[KEY_RECOGNITION_LOG] = enabled }
     }
 
+    suspend fun setOcrEnabled(enabled: Boolean) {
+        context.autoLedgerDataStore.edit { it[KEY_OCR_ENABLED] = enabled }
+    }
+
     private companion object {
         val KEY_ENABLED = booleanPreferencesKey("enabled")
         val KEY_DEFAULT_ACCOUNT = longPreferencesKey("default_account_id")
         val KEY_DEFAULT_CATEGORY = longPreferencesKey("default_category_id")
         val KEY_RECOGNITION_LOG = booleanPreferencesKey("recognition_log_enabled")
+        val KEY_OCR_ENABLED = booleanPreferencesKey("ocr_enabled")
     }
 }

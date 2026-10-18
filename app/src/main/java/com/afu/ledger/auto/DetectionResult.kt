@@ -16,4 +16,11 @@ enum class MissReason(val label: String) {
     NO_AMOUNT("金额解析失败"),
     AMBIGUOUS_AMOUNT("金额歧义"),
     ZERO_AMOUNT("金额为零"),
+
+    // 截图 OCR 通道专有
+    OCR_UNAVAILABLE("OCR 不可用"),
+    SCREENSHOT_FAILED("截图失败"),
+    OCR_TIMEOUT("OCR 超时"),
+    OCR_NO_TEXT("OCR 无文本"),
+    OCR_SUSPICIOUS_AMOUNT("金额格式不合规"),
 }

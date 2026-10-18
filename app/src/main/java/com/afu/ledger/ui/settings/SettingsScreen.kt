@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.afu.ledger.auto.AutoLedgerSettings
+import com.afu.ledger.auto.OcrStatus
 import com.afu.ledger.auto.RecognitionEntry
 import com.afu.ledger.data.prefs.DarkModeSetting
 import com.afu.ledger.data.prefs.ThemeSettings
@@ -54,6 +55,7 @@ fun SettingsScreen(
     accounts: List<Account>,
     expenseCategories: List<Category>,
     logEntries: List<RecognitionEntry>,
+    ocrStatus: OcrStatus,
     onThemeColorChange: (String) -> Unit,
     onDarkModeChange: (DarkModeSetting) -> Unit,
     onBackgroundPick: (String) -> Unit,
@@ -63,6 +65,7 @@ fun SettingsScreen(
     onDefaultAccountChange: (Long?) -> Unit,
     onDefaultCategoryChange: (Long?) -> Unit,
     onRecognitionLogChange: (Boolean) -> Unit,
+    onOcrEnabledChange: (Boolean) -> Unit,
     onClearLog: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -170,10 +173,12 @@ fun SettingsScreen(
             accounts = accounts,
             categories = expenseCategories,
             logEntries = logEntries,
+            ocrStatus = ocrStatus,
             onEnabledChange = onAutoEnabledChange,
             onDefaultAccountChange = onDefaultAccountChange,
             onDefaultCategoryChange = onDefaultCategoryChange,
             onRecognitionLogChange = onRecognitionLogChange,
+            onOcrEnabledChange = onOcrEnabledChange,
             onClearLog = onClearLog,
         )
     }

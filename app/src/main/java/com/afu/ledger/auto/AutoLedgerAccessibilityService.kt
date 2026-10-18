@@ -1,37 +1,44 @@
 package com.afu.ledger.auto
 
 import android.accessibilityservice.AccessibilityService
+import android.app.KeyguardManager
 import android.content.Intent
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityWindowInfo
-import android.widget.Toast
-import androidx.compose.runtime.mutableStateOf
 import com.afu.ledger.AfuApplication
 import com.afu.ledger.BuildConfig
 import com.afu.ledger.MainActivity
-import com.afu.ledger.auto.overlay.NoAccountCard
-import com.afu.ledger.auto.overlay.PaymentConfirmContent
+import com.afu.ledger.auto.ocr.OcrModelInstaller
+import com.afu.ledger.auto.ocr.OcrTextChannel
+import com.afu.ledger.auto.ocr.PpOcrEngine
+import com.afu.ledger.auto.ocr.ScreenshotCapturer
+import com.afu.ledger.auto.ocr.ScreenshotThrottle
 import com.afu.ledger.auto.overlay.PaymentConfirmOverlay
 import com.afu.ledger.data.AppContainer
 import com.afu.ledger.data.prefs.ThemeSettings
-import com.afu.ledger.domain.model.TransType
-import com.afu.ledger.ui.theme.AfuTheme
-import com.afu.ledger.util.MoneyFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 自动记账的无障碍服务。
  *
- * 职责很窄：收事件 → 去抖 → 把窗口文本交给 [PaymentPageDetector] →
- * 命中就弹确认窗。业务判断与解析都在可单测的纯 Kotlin 层。
+ * 职责很窄：收事件 → 去抖 → 交给 [AutoRecognitionEngine] → 命中就交给
+ * [PaymentConfirmController] 弹窗。文本采集、页面判定、弹窗入账都不在本类里。
  */
 class AutoLedgerAccessibilityService : AccessibilityService() {
 
@@ -40,13 +47,25 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
     private val detector = PaymentPageDetector(
         debugPackageName = if (BuildConfig.DEBUG) BuildConfig.APPLICATION_ID else null,
     )
-    private val deduper = DetectionDeduper()
-    private val overlayError = mutableStateOf<String?>(null)
+
+    /** 只用于把截图回调切回主线程，不依赖 androidx 的 ContextCompat。 */
+    private val captureExecutor: Executor by lazy {
+        val handler = Handler(Looper.getMainLooper())
+        Executor { runnable -> handler.post(runnable) }
+    }
+
+    private val ocrSetupMutex = Mutex()
+    private val ocrSetupStarted = AtomicBoolean(false)
 
     private var container: AppContainer? = null
     private var overlay: PaymentConfirmOverlay? = null
+    private var confirmController: PaymentConfirmController? = null
+    private var logger: AutoLedgerLogger? = null
     private var pendingJob: Job? = null
-    private var timeoutJob: Job? = null
+    private var ocrEngine: PpOcrEngine? = null
+
+    @Volatile
+    private var engine: AutoRecognitionEngine? = null
 
     @Volatile
     private var settings = AutoLedgerSettings()
@@ -58,13 +77,33 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         val app = application as AfuApplication
         container = app.container
+
         // 系统可能重复绑定；复用实例，别把还活着的悬浮窗引用丢了
-        if (overlay == null) {
-            overlay = PaymentConfirmOverlay(this)
-        }
+        val activeOverlay = overlay ?: PaymentConfirmOverlay(this).also { overlay = it }
+        val activeLogger = AutoLedgerLogger(
+            recognitionLog = app.container.recognitionLog,
+            enabledProvider = { settings.recognitionLogEnabled },
+        )
+        logger = activeLogger
+        confirmController = PaymentConfirmController(
+            service = this,
+            container = app.container,
+            overlay = activeOverlay,
+            deduper = DetectionDeduper(),
+            scope = scope,
+            settingsProvider = { settings },
+            themeProvider = { themeSettings },
+            logger = activeLogger,
+        )
+        engine = AutoRecognitionEngine(this, detector, ocrChannel = null, ocrDebugPackageName = debugOcrPackage)
 
         scope.launch {
-            app.container.autoLedgerSettings.settings.collect { settings = it }
+            var ocrWasEnabled = false
+            app.container.autoLedgerSettings.settings.collect { current ->
+                settings = current
+                if (current.ocrEnabled && !ocrWasEnabled) ensureOcrChannel(app.container)
+                ocrWasEnabled = current.ocrEnabled
+            }
         }
         scope.launch {
             app.container.themePreferences.settings.collect { themeSettings = it }
@@ -78,11 +117,16 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         if (!settings.enabled) return
         if (!isSupportedPackage(packageName)) return
 
-        // 页面渲染往往连续触发多个事件，合并到一次识别
+        val kind = when (event.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> ScreenshotThrottle.EventKind.WINDOW_STATE_CHANGED
+            else -> ScreenshotThrottle.EventKind.CONTENT_CHANGED
+        }
+
+        // 页面渲染往往连续触发多个事件，合并到一次识别；这同时是「页面已稳定」的判定
         pendingJob?.cancel()
         pendingJob = scope.launch {
             delay(DEBOUNCE_MILLIS)
-            inspectWindow(packageName)
+            inspect(packageName, kind)
         }
     }
 
@@ -90,8 +134,8 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         pendingJob?.cancel()
-        timeoutJob?.cancel()
-        overlay?.hide()
+        confirmController?.hide()
+        runCatching { ocrEngine?.close() }
         scope.cancel()
         super.onDestroy()
     }
@@ -100,202 +144,112 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         packageName in PaymentPageRules.supportedPackages ||
             (BuildConfig.DEBUG && packageName == this.packageName)
 
-    private fun inspectWindow(packageName: String) {
-        val snapshot = collectSnapshot(packageName)
-        debugLog("inspect texts=${snapshot.texts.size} ${snapshot.texts.take(10)}")
-        when (val result = detector.detect(snapshot)) {
-            is DetectionResult.Hit -> handleHit(result.draft)
-            is DetectionResult.Missed -> {
-                debugLog("miss ${result.reason.name}")
-                logMiss(packageName, result.reason)
+    /** debug 构建下允许自家模拟页走 OCR 通道，发布版为 null。 */
+    private val debugOcrPackage: String?
+        get() = if (BuildConfig.DEBUG) this.packageName else null
+
+    private suspend fun inspect(packageName: String, kind: ScreenshotThrottle.EventKind) {
+        val recognition = engine ?: return
+        val result = recognition.detect(
+            packageName = packageName,
+            kind = kind,
+            screenInteractive = isScreenInteractive(),
+            overlayShowing = confirmController?.isShowing == true,
+            ocrAllowed = settings.ocrEnabled,
+        )
+        when (result) {
+            is AutoRecognitionEngine.EngineResult.Hit -> confirmController?.handleHit(result.draft)
+            is AutoRecognitionEngine.EngineResult.Missed -> {
+                debugLog("miss ${result.reason.name} ${result.detail.orEmpty()}")
+                logger?.logMiss(packageName, result.reason, result.detail)
             }
+            AutoRecognitionEngine.EngineResult.Skipped ->
+                debugLog("throttled ${recognition.throttleDecision()}")
         }
+        recordOcrOutcome(recognition, result)
     }
 
-    /**
-     * 采集当前页面文本。
-     *
-     * 除了活动窗口，还会遍历所有窗口，并且已经把「不重要视图」包含进来——
-     * 有些自绘应用的文本会挂在 importantForAccessibility=no 的节点或子窗口里。
-     * 微信实测仍然读不到（见 design.md），那部分要靠截图 OCR，不在本次范围。
-     */
-    private fun collectSnapshot(packageName: String): PageSnapshot {
-        val texts = LinkedHashSet<String>()
-        rootInActiveWindow?.let { texts.addAll(NodeTextCollector.collect(it)) }
-
-        windows?.forEach { window ->
-            // 别把自己的确认卡片也读进来，否则「自动记账」「账户」「分类」会污染解析
-            if (window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) return@forEach
-            val windowRoot = runCatching { window.root }.getOrNull() ?: return@forEach
-            if (windowRoot.packageName?.toString() != packageName) return@forEach
-            texts.addAll(NodeTextCollector.collect(windowRoot))
+    private fun recordOcrOutcome(
+        recognition: AutoRecognitionEngine,
+        result: AutoRecognitionEngine.EngineResult,
+    ) {
+        if (result is AutoRecognitionEngine.EngineResult.Skipped) return
+        val status = container?.ocrStatus ?: return
+        if (!settings.ocrEnabled || !status.state.value.available) return
+        val outcome = when (result) {
+            is AutoRecognitionEngine.EngineResult.Hit -> "识别成功"
+            is AutoRecognitionEngine.EngineResult.Missed -> result.reason.label
+            AutoRecognitionEngine.EngineResult.Skipped -> return
         }
-
-        return PageSnapshot(packageName, texts.toList())
+        status.recordOutcome(ocrEngine?.lastElapsedMillis ?: -1L, outcome)
     }
 
-    private fun handleHit(draft: PaymentDraft) {
-        debugLog("hit amount=${draft.amount.cents} merchant=${draft.merchant}")
-
-        // 已经有待确认卡片时不再叠加：服务被系统重绑后内存去重会重置，
-        // 这里用「卡片是否还在」兜底，避免同一页弹两次。
-        if (overlay?.isShowing == true) return
-
-        if (!deduper.shouldNotify(draft)) {
-            log(draft.sourcePackage, "同一笔支付，已忽略", draft.amount.cents, draft.merchant)
-            return
-        }
-        scope.launch { showConfirm(draft) }
-    }
-
-    private suspend fun showConfirm(draft: PaymentDraft) {
-        val app = container ?: return
-
-        val accounts = app.accountRepository.observeActive().first()
-        if (accounts.isEmpty()) {
-            showNoAccount(draft)
-            return
-        }
-
-        val categories = app.categoryRepository.observeAll()
-            .first()
-            .filter { it.type == TransType.EXPENSE }
-        if (categories.isEmpty()) {
-            log(draft.sourcePackage, "没有可用的支出分类", draft.amount.cents, draft.merchant)
-            return
-        }
-
-        val accountId = settings.defaultAccountId
-            ?.takeIf { id -> accounts.any { it.id == id } }
-            ?: accounts.first().id
-        val categoryId = settings.defaultCategoryId
-            ?.takeIf { id -> categories.any { it.id == id } }
-            ?: categories.firstOrNull { it.name == RecordDetectedPaymentUseCase.FALLBACK_CATEGORY_NAME }?.id
-            ?: categories.first().id
-
-        overlayError.value = null
-        debugLog("showConfirm accounts=${accounts.size} categories=${categories.size}")
-        overlay?.show {
-            AfuTheme(themeSettings) {
-                PaymentConfirmContent(
-                    amountText = MoneyFormatter.formatWithSymbol(draft.amount),
-                    merchant = draft.merchant,
-                    accounts = accounts,
-                    categories = categories,
-                    initialAccountId = accountId,
-                    initialCategoryId = categoryId,
-                    errorText = overlayError.value,
-                    onConfirm = { account, category -> confirm(draft, account, category) },
-                    onIgnore = { ignore(draft) },
-                )
-            }
-        }
-        startTimeout(draft)
-    }
-
-    private fun showNoAccount(draft: PaymentDraft) {
-        overlayError.value = null
-        overlay?.show {
-            AfuTheme(themeSettings) {
-                NoAccountCard(
-                    amountText = MoneyFormatter.formatWithSymbol(draft.amount),
-                    onOpenApp = { openMainActivity() },
-                    onIgnore = { ignore(draft) },
-                )
-            }
-        }
-        startTimeout(draft)
-    }
-
-    private fun confirm(draft: PaymentDraft, accountId: Long, categoryId: Long) {
-        val app = container ?: return
-        timeoutJob?.cancel()
+    /** 用户打开 OCR 开关后才加载模型：不开启就不必付出内存与解压成本。 */
+    private fun ensureOcrChannel(container: AppContainer) {
+        if (!ocrSetupStarted.compareAndSet(false, true)) return
         scope.launch {
-            when (val result = app.recordDetectedPayment.execute(draft, accountId, categoryId)) {
-                is RecordResult.Success -> {
-                    log(draft.sourcePackage, "已入账", draft.amount.cents, draft.merchant)
-                    overlay?.hide()
-                    toast("已记一笔 ${MoneyFormatter.formatWithSymbol(draft.amount)}")
-                }
-
-                RecordResult.NoAccount -> {
-                    overlayError.value = "账户不可用，请重新选择"
-                    log(draft.sourcePackage, "入账失败：账户不可用", draft.amount.cents, draft.merchant)
-                    startTimeout(draft)
-                }
-
-                is RecordResult.Failed -> {
-                    overlayError.value = result.message
-                    log(draft.sourcePackage, "入账失败：${result.message}", draft.amount.cents, draft.merchant)
-                    startTimeout(draft)
-                }
-            }
+            val channel = withContext(Dispatchers.IO) { buildOcrChannel(container) }
+            if (channel == null) ocrSetupStarted.set(false)
+            else engine = AutoRecognitionEngine(this@AutoLedgerAccessibilityService, detector, channel, debugOcrPackage)
         }
     }
 
-    private fun ignore(draft: PaymentDraft) {
-        log(draft.sourcePackage, "用户忽略", draft.amount.cents, draft.merchant)
-        timeoutJob?.cancel()
-        overlay?.hide()
-    }
-
-    private fun startTimeout(draft: PaymentDraft) {
-        timeoutJob?.cancel()
-        timeoutJob = scope.launch {
-            delay(OVERLAY_TIMEOUT_MILLIS)
-            if (overlay?.isShowing == true) {
-                log(draft.sourcePackage, "超时未确认", draft.amount.cents, draft.merchant)
-                overlay?.hide()
-            }
+    private suspend fun buildOcrChannel(container: AppContainer): OcrTextChannel? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            container.ocrStatus.markUnavailable("系统版本低于 Android 11，不支持截图")
+            return null
         }
-    }
-
-    private fun openMainActivity() {
-        runCatching {
-            startActivity(
-                Intent(this, MainActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        return ocrSetupMutex.withLock {
+            val files = OcrModelInstaller.ensureInstalled(
+                targetDir = File(filesDir, "ocr"),
+                assetOpener = { name -> assets.open(name) },
+            )
+            if (files == null) {
+                container.ocrStatus.markUnavailable("OCR 模型解压失败")
+                return@withLock null
+            }
+            val ppEngine = PpOcrEngine(files)
+            if (!ppEngine.warmUp()) {
+                val reason = ppEngine.failureReason() ?: "OCR 模型加载失败"
+                ppEngine.close()
+                container.ocrStatus.markUnavailable(reason)
+                return@withLock null
+            }
+            ocrEngine = ppEngine
+            container.ocrStatus.markAvailable()
+            debugLog("ocr channel ready")
+            OcrTextChannel(
+                capturer = ScreenshotCapturer(this, captureExecutor),
+                engine = ppEngine,
+                throttle = ScreenshotThrottle(),
             )
         }
-        overlay?.hide()
     }
 
-    private fun logMiss(packageName: String, reason: MissReason) {
-        if (reason == MissReason.UNSUPPORTED_PACKAGE) return
-        log(packageName, reason.label)
-    }
-
-    private fun log(
-        packageName: String,
-        outcome: String,
-        amountCents: Long? = null,
-        merchant: String? = null,
-        detail: String? = null,
-    ) {
-        if (!settings.recognitionLogEnabled) return
-        container?.recognitionLog?.record(
-            RecognitionEntry(
-                at = System.currentTimeMillis(),
-                packageName = packageName,
-                outcome = outcome,
-                amountCents = amountCents,
-                merchant = merchant,
-                detail = detail,
-            ),
-        )
-    }
-
-    private fun toast(text: String) {
-        runCatching { Toast.makeText(this, text, Toast.LENGTH_SHORT).show() }
+    private fun isScreenInteractive(): Boolean {
+        val power = getSystemService(PowerManager::class.java)
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        if (power?.isInteractive != true) return false
+        return keyguard?.isKeyguardLocked != true
     }
 
     private fun debugLog(message: String) {
         if (BuildConfig.DEBUG) Log.d(TAG, message)
     }
 
+    /** 供悬浮窗里的「打开 App」回调使用。 */
+    fun openApp() {
+        runCatching {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+        confirmController?.hide()
+    }
+
     private companion object {
         const val TAG = "AutoLedger"
-        const val DEBOUNCE_MILLIS = 400L
-        const val OVERLAY_TIMEOUT_MILLIS = 60_000L
+        const val DEBOUNCE_MILLIS = 600L
     }
 }
