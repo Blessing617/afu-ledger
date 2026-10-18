@@ -98,12 +98,19 @@ fun SettingsScreen(
         }
     }
 
+    // 定时器在 LazyColumn 之外只订阅一次：放进 item 会让 5 秒一次的 tick
+    // 同时失效所有可见 item，快速滑动时表现为掉帧（官方 Compose 性能指南明确禁止）。
+    val keepAliveState by rememberKeepAliveState()
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
-        item {
+        // 每个区块都带稳定 key + contentType：
+        // key 让 LazyColumn 按身份复用 item 而不是按索引；
+        // contentType 让滚动时能复用同类型 item 的组合槽位，减少甩动瞬间的重建开销。
+        item(key = "theme-color", contentType = "settings-section") {
         SectionCard(icon = Icons.Outlined.Palette, title = "主题色") {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.md),
@@ -139,7 +146,7 @@ fun SettingsScreen(
         }
         }
 
-        item {
+        item(key = "dark-mode", contentType = "settings-section") {
         SectionCard(icon = Icons.Outlined.Palette, title = "深色模式") {
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 DarkModeSetting.entries.forEach { mode ->
@@ -153,7 +160,7 @@ fun SettingsScreen(
         }
         }
 
-        item {
+        item(key = "background", contentType = "settings-section") {
         SectionCard(icon = Icons.Outlined.Image, title = "背景图") {
             Text(
                 text = if (settings.backgroundUri == null) "当前使用主题色渐变背景" else "已设置自定义背景图",
@@ -234,7 +241,7 @@ fun SettingsScreen(
         }
         }
 
-        item {
+        item(key = "category", contentType = "settings-section") {
         SectionCard(icon = Icons.Outlined.Category, title = "分类管理") {
             Text(
                 text = "新增、重命名或删除收支分类",
@@ -245,7 +252,7 @@ fun SettingsScreen(
         }
         }
 
-        item {
+        item(key = "auto-ledger", contentType = "settings-section") {
             AutoLedgerSection(
                 settings = autoSettings,
                 serviceEnabled = serviceEnabled,
@@ -253,6 +260,7 @@ fun SettingsScreen(
                 categories = expenseCategories,
                 logEntries = logEntries,
                 ocrStatus = ocrStatus,
+                keepAliveState = keepAliveState,
                 onEnabledChange = onAutoEnabledChange,
                 onDefaultAccountChange = onDefaultAccountChange,
                 onDefaultCategoryChange = onDefaultCategoryChange,

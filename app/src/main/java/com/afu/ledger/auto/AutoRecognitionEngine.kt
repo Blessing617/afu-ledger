@@ -51,16 +51,21 @@ class AutoRecognitionEngine(
         ocrAllowed: Boolean,
         pageChanged: Boolean = false,
     ): EngineResult {
+        val startedAt = System.currentTimeMillis()
         val nodeSnapshot = collectNodeSnapshot(packageName)
+        val nodeMillis = System.currentTimeMillis() - startedAt
 
         // 无障碍文本够用时一律走节点：它更便宜、更准，也没有截图耗电问题
         if (hasUsableNodeText(nodeSnapshot)) {
-            return toEngineResult(detector.detect(nodeSnapshot), ocrChannelUsed = false)
+            val result = toEngineResult(detector.detect(nodeSnapshot), ocrChannelUsed = false)
+            lastTiming = Timing(nodeMillis = nodeMillis, totalMillis = System.currentTimeMillis() - startedAt)
+            return result
         }
 
         val channel = ocrChannel
         if (!ocrAllowed || channel == null || !shouldUseOcr(packageName)) {
             // 读不到节点、又不该走 OCR：保持原来的「静默跳过」行为
+            lastTiming = Timing(nodeMillis = nodeMillis, totalMillis = System.currentTimeMillis() - startedAt)
             return EngineResult.Missed(MissReason.NOT_PAYMENT_PAGE)
         }
 
@@ -75,15 +80,51 @@ class AutoRecognitionEngine(
         ) {
             is OcrTextChannel.ReadResult.Success -> {
                 debugLog("ocr lines=${read.lineCount} in ${read.ocrElapsedMillis}ms")
-                toEngineResult(detector.detect(read.snapshot), ocrChannelUsed = true)
+                val result = toEngineResult(detector.detect(read.snapshot), ocrChannelUsed = true)
+                lastTiming = Timing(
+                    nodeMillis = nodeMillis,
+                    captureMillis = read.captureMillis,
+                    ocrMillis = read.ocrMillis,
+                    totalMillis = System.currentTimeMillis() - startedAt,
+                )
+                result
             }
 
-            is OcrTextChannel.ReadResult.Failed ->
+            is OcrTextChannel.ReadResult.Failed -> {
+                lastTiming = Timing(nodeMillis = nodeMillis, totalMillis = System.currentTimeMillis() - startedAt)
                 EngineResult.Missed(read.reason, read.detail)
+            }
 
-            OcrTextChannel.ReadResult.Skipped -> EngineResult.Skipped
+            OcrTextChannel.ReadResult.Skipped -> {
+                lastTiming = null
+                EngineResult.Skipped
+            }
         }
     }
+
+    /** 最近一次识别的分段耗时。仅用于排查与日志，不在关闭日志时持久化。 */
+    data class Timing(
+        /** 无障碍节点采集。 */
+        val nodeMillis: Long = 0L,
+        /** 截图（含 HW buffer → ARGB 拷贝）。 */
+        val captureMillis: Long = 0L,
+        /** OCR 推理（det + rec）。 */
+        val ocrMillis: Long = 0L,
+        /** 本次 detect 的总耗时。 */
+        val totalMillis: Long = 0L,
+    ) {
+        /** 一行可读的分段摘要，写进识别日志的 detail。 */
+        fun summary(): String = buildString {
+            append("节点 ${nodeMillis}ms")
+            if (captureMillis > 0) append(" · 截图 ${captureMillis}ms")
+            if (ocrMillis > 0) append(" · OCR ${ocrMillis}ms")
+            append(" · 合计 ${totalMillis}ms")
+        }
+    }
+
+    @Volatile
+    var lastTiming: Timing? = null
+        private set
 
     /** 上报一次最终结果，驱动截图退避。 */
     fun reportOutcome(hit: Boolean) {

@@ -27,13 +27,16 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -48,12 +51,10 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import coil3.compose.AsyncImage
 import com.afu.ledger.data.AppContainer
 import com.afu.ledger.data.prefs.ThemeSettings
@@ -63,6 +64,7 @@ import com.afu.ledger.ui.assets.AssetsScreen
 import com.afu.ledger.ui.assets.AssetsViewModel
 import com.afu.ledger.ui.category.CategoryScreen
 import com.afu.ledger.ui.category.CategoryViewModel
+import com.afu.ledger.ui.component.AfuMotion
 import com.afu.ledger.ui.component.BackgroundLayer
 import com.afu.ledger.ui.component.rememberMotionEnabled
 import com.afu.ledger.ui.home.HomeScreen
@@ -94,6 +96,10 @@ fun AfuApp(container: AppContainer) {
     val isOverlay = overlayRoute != null && overlayRoute != TAB_HOST
 
     var currentTab by rememberSaveable { mutableStateOf(bottomTabs.first().route) }
+
+    // 记账表单改用对话框（与「新增账户」同一套交互语言），不再是导航目的地。
+    // null = 不显示；-1L = 新增；>0 = 编辑该 id。
+    var recordTarget by rememberSaveable { mutableStateOf<Long?>(null) }
 
     // 系统关闭动画（动画缩放 0 / 减弱动效）时退化为瞬时切换，而不是「变慢」
     val motionEnabled = rememberMotionEnabled()
@@ -150,7 +156,9 @@ fun AfuApp(container: AppContainer) {
                     HomeRoute(
                         container = container,
                         navController = navController,
-                        onNavigateToAssets = { currentTab = "assets" },
+                        onAddTransaction = { recordTarget = -1L },
+                        onCreateAccount = { currentTab = "assets" },
+                        onEditTransaction = { id -> recordTarget = id },
                     )
                 }
                 TabPage(route = "assets", current = currentTab) {
@@ -160,56 +168,117 @@ fun AfuApp(container: AppContainer) {
                     SettingsRoute(container = container, navController = navController)
                 }
 
-                // 二级页面：仍由 NavHost 管理，只负责「层级进入/返回」的转场
+                // 二级页面：仍由 NavHost 管理，只负责「层级进入/返回」的转场。
+                //
+                // zIndex 必须显式高于 TabPage：TabPage 可见时是 1f，而 NavHost 默认是 0f，
+                // 于是「记一笔」滑入时表单反而被首页的空状态卡片与悬浮按钮盖住。
+                // 这是层级 bug，不是时序抖动 —— 转场前几帧表单半透明，底下内容直接透出来。
                 NavHost(
                     navController = navController,
                     startDestination = TAB_HOST,
+                    modifier = Modifier.zIndex(NAV_HOST_Z_INDEX),
+                    // 进入：从下方滑入 + 淡入，用减速曲线（起始快、结尾缓）。
+                    // 先前的 tween(300) 是线性缓动，规格明确禁止；线性会让整段位移
+                    // 匀速推开，缺少「一下就到位再轻轻收住」的落位感。
                     enterTransition = {
                         if (!motionEnabled) {
                             EnterTransition.None
                         } else {
-                            slideInVertically(tween(300)) { full -> full / 3 } + fadeIn(tween(300))
+                            slideInVertically(
+                                animationSpec = tween(
+                                    durationMillis = AfuMotion.DURATION_ENTER_MS,
+                                    easing = AfuMotion.EmphasizedDecelerate,
+                                ),
+                            ) { full -> full / 4 } +
+                                fadeIn(
+                                    animationSpec = tween(
+                                        durationMillis = AfuMotion.DURATION_ENTER_MS,
+                                        easing = AfuMotion.EmphasizedDecelerate,
+                                    ),
+                                )
                         }
                     },
-                    exitTransition = { if (!motionEnabled) ExitTransition.None else fadeOut(tween(90)) },
+                    // 被覆盖的页面左右略退，与进入的位移方向一致，形成层次而非硬切
+                    exitTransition = {
+                        if (!motionEnabled) {
+                            ExitTransition.None
+                        } else {
+                            slideOutVertically(
+                                animationSpec = tween(
+                                    durationMillis = AfuMotion.DURATION_EXIT_MS,
+                                    easing = AfuMotion.EmphasizedAccelerate,
+                                ),
+                            ) { full -> -full / 12 } +
+                                fadeOut(tween(durationMillis = AfuMotion.DURATION_EXIT_MS))
+                        }
+                    },
                     popEnterTransition = {
-                        if (!motionEnabled) EnterTransition.None else fadeIn(tween(210))
+                        if (!motionEnabled) {
+                            EnterTransition.None
+                        } else {
+                            fadeIn(
+                                animationSpec = tween(
+                                    durationMillis = AfuMotion.DURATION_EXIT_MS,
+                                    easing = AfuMotion.EmphasizedDecelerate,
+                                ),
+                            )
+                        }
                     },
                     popExitTransition = {
                         if (!motionEnabled) {
                             ExitTransition.None
                         } else {
-                            slideOutVertically(tween(300)) { full -> full / 3 } + fadeOut(tween(240))
+                            slideOutVertically(
+                                animationSpec = tween(
+                                    durationMillis = AfuMotion.DURATION_ENTER_MS,
+                                    easing = AfuMotion.EmphasizedAccelerate,
+                                ),
+                            ) { full -> full / 4 } +
+                                fadeOut(
+                                    animationSpec = tween(
+                                        durationMillis = AfuMotion.DURATION_ENTER_MS,
+                                        easing = AfuMotion.EmphasizedAccelerate,
+                                    ),
+                                )
                         }
                     },
                 ) {
                     composable(TAB_HOST) { /* 占位：标签页在 NavHost 之外 */ }
-                    composable(
-                        route = "record?transactionId={transactionId}",
-                        arguments = listOf(
-                            navArgument("transactionId") {
-                                type = NavType.LongType
-                                defaultValue = -1L
-                            },
-                        ),
-                    ) { entry ->
-                        val id = entry.arguments?.getLong("transactionId") ?: -1L
-                        RecordRoute(
-                            container = container,
-                            editingTransactionId = if (id > 0L) id else null,
-                            onBack = { navController.popBackStack() },
-                        )
-                    }
                     composable("categories") {
                         CategoryRoute(container = container, onBack = { navController.popBackStack() })
                     }
+                }
+
+                // 记账对话框与「新增账户」同为居中卡片，层级由 Dialog 自身的窗口保证，
+                // 不再依赖 zIndex，也不需要整页滑入的转场。
+                recordTarget?.let { target ->
+                    RecordRoute(
+                        container = container,
+                        editingTransactionId = if (target > 0L) target else null,
+                        onBack = { recordTarget = null },
+                    )
                 }
             }
         }
     }
 }
 
-/** 一个常驻组合的标签页：不可见时只把 alpha 归零，组合树保留。 */
+/**
+ * 一个常驻组合的标签页。
+ *
+ * ## 转场为什么不是「纯淡入淡出」
+ *
+ * 只说「切换」的动效会让用户觉得**断**：一页消失、另一页凭空出现。
+ * 有连贯感的转场需要两个额外信号（这也是系统级动效看起来「灵动」的原因）：
+ *
+ * 1. **方向**：新页面从它所在的方向进来（往右切就从右侧滑入），旧页面反向离开。
+ *    用户看到的是「这一叠纸被推过去」，而不是「换了一张纸」。
+ * 2. **纵深**：离开的页面轻微缩小并后退，进来的页面从稍小恢复到原尺寸。
+ *    近大远小给了空间层次，避免两块全屏图片直接交叠。
+ *
+ * 位移幅度刻意很小（[TAB_SLIDE_FRACTION] 屏宽）：大幅平移在手机上会显得笨重，
+ * 且大面积重绘更容易掉帧；「小幅位移 + 缩放 + 交错淡出」观感更接近连续的形变。
+ */
 @Composable
 private fun TabPage(
     route: String,
@@ -218,21 +287,79 @@ private fun TabPage(
 ) {
     val visible = route == current
     val motionEnabled = rememberMotionEnabled()
-    val alpha by animateFloatAsState(
+    // 方向：目标页在右侧就从右边进，在左侧就从左边进
+    val direction = remember(route, current) {
+        val target = tabIndex(route)
+        val from = tabIndex(current)
+        when {
+            target > from -> 1f
+            target < from -> -1f
+            else -> 0f
+        }
+    }
+    // 注意：这里**不要**用 `by` 解包。
+    // `val alpha by animateFloatAsState(...)` 会在组合阶段读取状态，
+    // 动画每一帧都会让整个 TabPage（含整页内容）重组一次。
+    // 保持 State 引用，把 .value 的读取放进 graphicsLayer 的 lambda 里，
+    // 状态读取就落在 Draw 阶段，动画期间不触发重组。
+    val progress = animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = if (motionEnabled) tween(durationMillis = 160) else snap(),
-        label = "tabAlpha",
+        // spring 而非 tween：规格要求「MUST 使用减速曲线或 spring」，且弹簧带落位感
+        animationSpec = if (motionEnabled) AfuMotion.glide() else snap(),
+        label = "tabProgress",
     )
+    // 完全透明的页面不参与绘制。
+    //
+    // 只把 alpha 设成 0 时，这一层仍然是独立 RenderNode，仍要进合成流程；
+    // 三个全屏层 + 背景层 + Scaffold 同时在场时，合成器压力会体现在 sync 阶段。
+    // 这里在完全透明时整个跳过 drawContent：组合树保留（切换速度不变），
+    // 但不再产生绘制指令。
     Box(
         modifier = Modifier
             .fillMaxSize()
             .zIndex(if (visible) 1f else 0f)
-            .graphicsLayer { this.alpha = alpha }
+            .graphicsLayer {
+                val p = progress.value
+                alpha = p
+                if (p < 0.999f) {
+                    // 未完全就位时，位移 + 缩放一起表达「还没到位」
+                    translationX = direction * size.width * TAB_SLIDE_FRACTION * (1f - p)
+                    val scale = TAB_SCALE_FROM + (1f - TAB_SCALE_FROM) * p
+                    scaleX = scale
+                    scaleY = scale
+                } else {
+                    // 就位后复位，保证稳态下这一层可被缓存、不因缩放而重采样
+                    translationX = 0f
+                    scaleX = 1f
+                    scaleY = 1f
+                }
+            }
+            .drawWithContent {
+                if (progress.value > 0.01f) drawContent()
+            }
             .then(if (visible) Modifier else Modifier.pointerInput(Unit) { blockAllInput() }),
     ) {
-        content()
+        // 让页面里的周期性任务知道自己在不在前台：
+        // 组合树保留是为了切换快，但不可见时不该继续跑定时器。
+        CompositionLocalProvider(LocalTabVisible provides visible) {
+            content()
+        }
     }
 }
+
+/** 标签切换时的水平位移幅度（屏宽的比例）。小幅度即可表达方向。 */
+private const val TAB_SLIDE_FRACTION = 0.06f
+
+/**
+ * 标签页未就位时的缩放起点。
+ *
+ * **必须 >= 1**：小于 1 会让页面在转场中内缩，四周露出 Scaffold 底色（实测能看到一圈灰边）。
+ * 从 1.02 收敛到 1.0 同样能表达「从近处落定」的纵深，但永远不会露边。
+ */
+private const val TAB_SCALE_FROM = 1.02f
+
+/** 当前所在的标签页是否可见。不可见时页面应暂停定时刷新。 */
+val LocalTabVisible = staticCompositionLocalOf { true }
 
 /** 不可见页面吞掉所有触摸，避免事件穿透到下层页面。 */
 private suspend fun PointerInputScope.blockAllInput() {
@@ -245,12 +372,22 @@ private suspend fun PointerInputScope.blockAllInput() {
 
 private const val TAB_HOST = "tab-host"
 
+/**
+ * 二级页面的层级，必须高于 [TabPage] 的任何 zIndex。
+ *
+ * TabPage 可见时为 1f，不可见时为 0f；NavHost 取 2f 就能保证
+ * 「二级页面永远画在标签页之上」，不被空状态卡片、悬浮按钮或底部导航盖住。
+ */
+private const val NAV_HOST_Z_INDEX = 2f
+
 
 @Composable
 private fun HomeRoute(
     container: AppContainer,
     navController: NavHostController,
-    onNavigateToAssets: () -> Unit,
+    onAddTransaction: () -> Unit,
+    onCreateAccount: () -> Unit,
+    onEditTransaction: (Long) -> Unit,
 ) {
     val viewModel: HomeViewModel = viewModel(
         factory = viewModelFactory {
@@ -267,9 +404,9 @@ private fun HomeRoute(
 
     HomeScreen(
         uiState = uiState,
-        onAddTransaction = { navController.navigate("record") },
-        onCreateAccount = onNavigateToAssets,
-        onTransactionClick = { id -> navController.navigate("record?transactionId=$id") },
+        onAddTransaction = onAddTransaction,
+        onCreateAccount = onCreateAccount,
+        onTransactionClick = onEditTransaction,
     )
 }
 

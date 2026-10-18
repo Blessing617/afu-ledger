@@ -134,4 +134,62 @@ class ScreenshotThrottleTest {
         assertFalse(allowed)
         assertEquals(ScreenshotThrottle.Decision.OVERLAY_SHOWING, throttle.lastDecision)
     }
+
+    @Test
+    fun `退避拉满后用户主动点击仍放行`() {
+        // 在聊天页连续未命中，退避会拉到上限 60 秒
+        repeat(5) {
+            capture(ScreenshotThrottle.EventKind.CONTENT_CHANGED)
+            throttle.recordResult(false)
+            now += 100_000
+        }
+        assertEquals(60_000L, throttle.currentIntervalMillis(ScreenshotThrottle.EventKind.CONTENT_CHANGED))
+
+        // 刚截过一张，紧接着用户点进支付页：不能等 60 秒
+        now += 2_000
+        val allowed = throttle.shouldCapture(
+            kind = ScreenshotThrottle.EventKind.CONTENT_CHANGED,
+            screenInteractive = true,
+            overlayShowing = false,
+            pageChanged = true,
+        )
+        assertTrue("退避期内的主动换页必须放行，否则会漏记", allowed)
+    }
+
+    @Test
+    fun `退避期内非主动内容变化仍被拦`() {
+        // 连续未命中把间隔拉到 60 秒；最后一次截图后只过 2 秒
+        repeat(5) {
+            capture(ScreenshotThrottle.EventKind.CONTENT_CHANGED)
+            throttle.recordResult(false)
+            now += 100_000
+        }
+        // 重新截一次，把 lastShotAt 拉到当前时刻
+        assertTrue(capture(ScreenshotThrottle.EventKind.CONTENT_CHANGED))
+        assertEquals(60_000L, throttle.currentIntervalMillis(ScreenshotThrottle.EventKind.CONTENT_CHANGED))
+
+        now += 2_000
+        val allowed = capture(ScreenshotThrottle.EventKind.CONTENT_CHANGED)
+        assertFalse("没有换页信号时仍应遵守退避间隔", allowed)
+    }
+
+    @Test
+    fun `主动换页仍受系统截图最小间隔约束`() {
+        assertTrue(
+            throttle.shouldCapture(
+                kind = ScreenshotThrottle.EventKind.WINDOW_STATE_CHANGED,
+                screenInteractive = true,
+                overlayShowing = false,
+            ),
+        )
+        // 系统侧 takeScreenshot 本身有最小间隔，太快会被它拒绝，所以这里也要拦
+        now += 200
+        val allowed = throttle.shouldCapture(
+            kind = ScreenshotThrottle.EventKind.CONTENT_CHANGED,
+            screenInteractive = true,
+            overlayShowing = false,
+            pageChanged = true,
+        )
+        assertFalse("距上次截图仅 200ms，应被最小间隔拦住", allowed)
+    }
 }

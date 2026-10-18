@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +32,7 @@ import com.afu.ledger.auto.keepalive.AutoLedgerKeepAlive
 import com.afu.ledger.domain.model.Account
 import com.afu.ledger.domain.model.Category
 import com.afu.ledger.domain.model.Money
+import com.afu.ledger.ui.LocalTabVisible
 import com.afu.ledger.ui.theme.Spacing
 import com.afu.ledger.util.MoneyFormatter
 import java.text.SimpleDateFormat
@@ -48,6 +50,7 @@ fun AutoLedgerSection(
     categories: List<Category>,
     logEntries: List<RecognitionEntry>,
     ocrStatus: OcrStatus,
+    keepAliveState: KeepAliveUiState,
     onEnabledChange: (Boolean) -> Unit,
     onDefaultAccountChange: (Long?) -> Unit,
     onDefaultCategoryChange: (Long?) -> Unit,
@@ -85,21 +88,12 @@ fun AutoLedgerSection(
         )
 
         if (serviceEnabled) {
-            val keepAlive = rememberKeepAliveState()
-            Text(
-                text = keepAlive.text,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (keepAlive.healthy) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.error
-                },
-            )
-            if (!keepAlive.healthy) {
-                TextButton(onClick = { context.startActivity(accessibilitySettingsIntent()) }) {
-                    Text("去重新开启无障碍服务")
-                }
-            }
+            // 状态由 SettingsScreen 在 LazyColumn **之外**统一订阅后传进来。
+            //
+            // 官方 Compose 性能指南明确禁止在 lazy item 内部 collect 共享 Flow / 定时器：
+            // 那样每个可见 item 都会建立独立订阅，定时器一 tick 就同时让所有可见 item
+            // 失效重组，快速滚动时直接表现为掉帧。这里只接收已算好的值。
+            KeepAliveStatusLine(keepAliveState)
         }
 
         if (!serviceEnabled) {
@@ -199,6 +193,13 @@ fun AutoLedgerSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            ocrStatus.lastDetail?.let { detail ->
+                Text(
+                    text = "分段：$detail",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
                 text = "只在微信前台且页面稳定后截一次，内容变化至少间隔 8 秒，" +
                     "连续识别不到会自动退避到 60 秒。支付宝不截图。",
@@ -245,16 +246,51 @@ fun AutoLedgerSection(
 
 private const val RecognitionLogLineLimit = 8
 
-private data class KeepAliveUiState(val text: String, val healthy: Boolean)
+/** 后台可靠性状态的展示模型。 */
+data class KeepAliveUiState(val text: String, val healthy: Boolean)
 
-/** 每 5 秒刷新一次后台可靠性状态，避免把「冻结」显示成「正常」。 */
+/**
+ * 后台可靠性状态行。纯展示，不持有定时器。
+ *
+ * 定时器在 [rememberKeepAliveState]（由 SettingsScreen 在 LazyColumn 之外调用），
+ * 原因见官方性能指南的「不要在 lazy item 里 collect 共享 Flow」。
+ */
 @Composable
-private fun rememberKeepAliveState(): KeepAliveUiState {
-    var state by remember { mutableStateOf(computeKeepAliveState()) }
-    LaunchedEffect(Unit) {
+private fun KeepAliveStatusLine(state: KeepAliveUiState) {
+    val context = LocalContext.current
+    Text(
+        text = state.text,
+        style = MaterialTheme.typography.labelMedium,
+        color = if (state.healthy) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.error
+        },
+    )
+    if (!state.healthy) {
+        TextButton(onClick = { context.startActivity(accessibilitySettingsIntent()) }) {
+            Text("去重新开启无障碍服务")
+        }
+    }
+}
+
+/**
+ * 5 秒刷新一次后台可靠性状态。
+ *
+ * **必须在 LazyColumn 之外调用一次**，把结果作为参数传给 item。
+ * 在 item 内部持有定时器会让定时器 tick 同时失效所有可见 item。
+ */
+@Composable
+fun rememberKeepAliveState(): State<KeepAliveUiState> {
+    val visible = LocalTabVisible.current
+    val state = remember { mutableStateOf(computeKeepAliveState()) }
+    LaunchedEffect(visible) {
+        if (!visible) return@LaunchedEffect
+        // 回到前台先立刻刷新一次，避免显示离开前的旧值
+        state.value = computeKeepAliveState()
         while (true) {
-            state = computeKeepAliveState()
             delay(5_000)
+            state.value = computeKeepAliveState()
         }
     }
     return state

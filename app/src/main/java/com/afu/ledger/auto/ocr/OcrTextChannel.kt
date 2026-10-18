@@ -23,6 +23,10 @@ class OcrTextChannel(
             val snapshot: PageSnapshot,
             val ocrElapsedMillis: Long,
             val lineCount: Int,
+            /** 截图（含 HW buffer → ARGB 拷贝）耗时。 */
+            val captureMillis: Long = 0L,
+            /** 纯 OCR 推理耗时（det + rec）。 */
+            val ocrMillis: Long = 0L,
         ) : ReadResult
 
         data class Failed(val reason: MissReason, val detail: String? = null) : ReadResult
@@ -63,9 +67,17 @@ class OcrTextChannel(
             ScreenshotCapturer.CaptureResult.Unsupported ->
                 return ReadResult.Failed(MissReason.OCR_UNAVAILABLE, "系统版本不支持截图")
         }
+        val captureMillis = System.currentTimeMillis() - startedAt
 
-        val lines = withTimeoutOrNull(timeoutMillis) { engine.recognize(image) }
-            ?: return ReadResult.Failed(MissReason.OCR_TIMEOUT, "超过 ${timeoutMillis}ms")
+        val ocrStartedAt = System.currentTimeMillis()
+        val lines = try {
+            withTimeoutOrNull(timeoutMillis) { engine.recognize(image) }
+                ?: return ReadResult.Failed(MissReason.OCR_TIMEOUT, "超过 ${timeoutMillis}ms")
+        } finally {
+            // 位图所有权在调用方：识别结束立即释放，不落盘、不缓存
+            image.recycle()
+        }
+        val ocrMillis = System.currentTimeMillis() - ocrStartedAt
 
         if (lines.isEmpty()) return ReadResult.Failed(MissReason.OCR_NO_TEXT)
 
@@ -84,6 +96,8 @@ class OcrTextChannel(
             snapshot = PageSnapshot(packageName = packageName, texts = sanitized),
             ocrElapsedMillis = System.currentTimeMillis() - startedAt,
             lineCount = sanitized.size,
+            captureMillis = captureMillis,
+            ocrMillis = ocrMillis,
         )
     }
 

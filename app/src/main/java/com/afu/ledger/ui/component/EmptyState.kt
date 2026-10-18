@@ -21,8 +21,8 @@ import com.afu.ledger.ui.theme.CardShape
 /**
  * 空状态：图标 + 标题 + 说明 + 可选操作。
  *
- * 卡片恢复为整行宽度；底色不透明度取自 [LocalSurfaceAlpha]，
- * 由用户在设置里调（想让图透出来就调低，想文字清晰就调高）。
+ * 卡片恢复为整行宽度；底色不透明度取自 [effectiveSurfaceAlpha]，
+ * 由用户在设置里调（想让图透出来就调低，想文字清晰就调高），深色模式会自动收敛。
  */
 @Composable
 fun EmptyState(
@@ -37,7 +37,7 @@ fun EmptyState(
             .fillMaxWidth()
             .padding(vertical = 16.dp)
             .background(
-                MaterialTheme.colorScheme.surface.copy(alpha = LocalSurfaceAlpha.current),
+                MaterialTheme.colorScheme.surface.copy(alpha = effectiveSurfaceAlpha()),
                 CardShape,
             )
             .padding(28.dp),

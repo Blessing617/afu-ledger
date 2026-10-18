@@ -80,6 +80,15 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
     @Volatile
     private var pageChangePending: Boolean = false
 
+    /**
+     * 是否正在截图/识别。
+     *
+     * 用来避免「截完图又被新事件取消」：全屏截图与 OCR 的代价远高于一次去抖，
+     * 已经付掉的成本不应该被丢弃，新事件只需合并进这次识别。
+     */
+    @Volatile
+    private var captureInFlight: Boolean = false
+
     @Volatile
     private var themeSettings = ThemeSettings()
 
@@ -173,10 +182,29 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         // 点击带来的「换页」就被后面的内容事件冲掉了，结果又被 8 秒节流拦下（实测踩过）。
         if (clicked || classChanged) pageChangePending = true
 
-        // 页面渲染往往连续触发多个事件，合并到一次识别；这同时是「页面已稳定」的判定
+        // 页面渲染往往连续触发多个事件，合并到一次识别；这同时是「页面已稳定」的判定。
+        //
+        // 去抖分两档：
+        //  - 用户主动操作（点击/换页）：页面已经跳完了，没必要再等 600ms —— 用短档
+        //  - 其余内容变化：可能是滚动/加载动画中，等长档避免无效判定
+        //
+        // 短档只对**用户明确动作**生效，所以不会让无效判定的次数明显上升。
+        val debounceMillis = if (clicked || classChanged) {
+            DEBOUNCE_AFTER_USER_ACTION_MILLIS
+        } else {
+            DEBOUNCE_MILLIS
+        }
+
+        // 已有截图任务在执行时不要取消它：截一张全屏再丢掉纯属浪费，
+        // 而且会让用户在支付页多等一个完整周期。
+        if (captureInFlight) {
+            debugLog("capture in flight, coalesce event")
+            return
+        }
+
         pendingJob?.cancel()
         pendingJob = scope.launch {
-            delay(DEBOUNCE_MILLIS)
+            delay(debounceMillis)
             val pageChanged = pageChangePending
             pageChangePending = false
             inspect(packageName, kind, pageChanged)
@@ -209,24 +237,39 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         pageChanged: Boolean,
     ) {
         val recognition = engine ?: return
-        val result = recognition.detect(
-            packageName = packageName,
-            kind = kind,
-            screenInteractive = isScreenInteractive(),
-            overlayShowing = confirmController?.isShowing == true,
-            ocrAllowed = settings.ocrEnabled,
-            pageChanged = pageChanged,
-        )
-        when (result) {
-            is AutoRecognitionEngine.EngineResult.Hit -> confirmController?.handleHit(result.draft)
-            is AutoRecognitionEngine.EngineResult.Missed -> {
-                debugLog("miss ${result.reason.name} ${result.detail.orEmpty()}")
-                logger?.logMiss(packageName, result.reason, result.detail)
+        captureInFlight = true
+        try {
+            val result = recognition.detect(
+                packageName = packageName,
+                kind = kind,
+                screenInteractive = isScreenInteractive(),
+                overlayShowing = confirmController?.isShowing == true,
+                ocrAllowed = settings.ocrEnabled,
+                pageChanged = pageChanged,
+            )
+            when (result) {
+                is AutoRecognitionEngine.EngineResult.Hit -> {
+                    // 分段耗时随命中一起进日志：排查「为什么慢」时不必再复现一次
+                    logger?.log(
+                        packageName = packageName,
+                        outcome = "识别命中",
+                        amountCents = result.draft.amount.cents,
+                        merchant = result.draft.merchant,
+                        detail = recognition.lastTiming?.summary(),
+                    )
+                    confirmController?.handleHit(result.draft)
+                }
+                is AutoRecognitionEngine.EngineResult.Missed -> {
+                    debugLog("miss ${result.reason.name} ${result.detail.orEmpty()}")
+                    logger?.logMiss(packageName, result.reason, result.detail)
+                }
+                AutoRecognitionEngine.EngineResult.Skipped ->
+                    debugLog("throttled ${recognition.throttleDecision()}")
             }
-            AutoRecognitionEngine.EngineResult.Skipped ->
-                debugLog("throttled ${recognition.throttleDecision()}")
+            recordOcrOutcome(recognition, result)
+        } finally {
+            captureInFlight = false
         }
-        recordOcrOutcome(recognition, result)
     }
 
     private fun recordOcrOutcome(
@@ -236,12 +279,18 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         if (result is AutoRecognitionEngine.EngineResult.Skipped) return
         val status = container?.ocrStatus ?: return
         if (!settings.ocrEnabled || !status.state.value.available) return
+        // 分段耗时附着在状态里，供设置页展示「慢在哪一段」
+        val timing = recognition.lastTiming?.summary()
         val outcome = when (result) {
             is AutoRecognitionEngine.EngineResult.Hit -> "识别成功"
             is AutoRecognitionEngine.EngineResult.Missed -> result.reason.label
             AutoRecognitionEngine.EngineResult.Skipped -> return
         }
-        status.recordOutcome(ocrEngine?.lastElapsedMillis ?: -1L, outcome)
+        status.recordOutcome(
+            elapsedMillis = ocrEngine?.lastElapsedMillis ?: -1L,
+            outcome = outcome,
+            detail = timing,
+        )
     }
 
     /** 用户打开 OCR 开关后才加载模型：不开启就不必付出内存与解压成本。 */
@@ -310,6 +359,16 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
 
     private companion object {
         const val TAG = "AutoLedger"
+
+        /** 内容变化事件的稳定判定时长：页面可能还在滚动/加载，多等一点避免无效判定。 */
         const val DEBOUNCE_MILLIS = 600L
+
+        /**
+         * 用户主动操作（点击 / 页面标识变化）后的稳定判定时长。
+         *
+         * 用户点了「完成」或跳进账单页，页面已经跳完，不需要再等 600ms。
+         * 这是支付宝与微信识别延迟里最容易省掉的一段。
+         */
+        const val DEBOUNCE_AFTER_USER_ACTION_MILLIS = 180L
     }
 }
