@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.afu.ledger.auto.AutoLedgerSettings
+import com.afu.ledger.auto.OcrStatus
 import com.afu.ledger.auto.RecognitionEntry
 import com.afu.ledger.domain.model.Account
 import com.afu.ledger.domain.model.Category
@@ -39,10 +40,12 @@ fun AutoLedgerSection(
     accounts: List<Account>,
     categories: List<Category>,
     logEntries: List<RecognitionEntry>,
+    ocrStatus: OcrStatus,
     onEnabledChange: (Boolean) -> Unit,
     onDefaultAccountChange: (Long?) -> Unit,
     onDefaultCategoryChange: (Long?) -> Unit,
     onRecognitionLogChange: (Boolean) -> Unit,
+    onOcrEnabledChange: (Boolean) -> Unit,
     onClearLog: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -130,6 +133,53 @@ fun AutoLedgerSection(
                     )
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(Spacing.md))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "截图 OCR（微信兜底）",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = "微信不暴露无障碍节点，只能截屏后用本机离线 OCR 识别。" +
+                        "截图只存在内存里，识别完立即丢弃，不落盘、不上传。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = settings.ocrEnabled, onCheckedChange = onOcrEnabledChange)
+        }
+
+        if (settings.ocrEnabled) {
+            val statusText = when {
+                !ocrStatus.available -> "OCR 状态：不可用${ocrStatus.reason?.let { "（$it）" }.orEmpty()}"
+                ocrStatus.lastOutcome != null -> "OCR 状态：可用 · 最近一次 ${ocrStatus.lastOutcome}"
+                else -> "OCR 状态：可用"
+            }
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (ocrStatus.available) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            )
+            if (ocrStatus.available && ocrStatus.lastElapsedMillis > 0) {
+                Text(
+                    text = "最近一次识别耗时 ${ocrStatus.lastElapsedMillis} ms",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = "只在微信前台且页面稳定后截一次，内容变化至少间隔 8 秒，" +
+                    "连续识别不到会自动退避到 60 秒。支付宝不截图。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         Spacer(modifier = Modifier.height(Spacing.md))

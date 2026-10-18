@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.afu.ledger.auto.AutoLedgerSettings
 import com.afu.ledger.auto.AutoLedgerSettingsRepository
+import com.afu.ledger.auto.OcrStatus
+import com.afu.ledger.auto.OcrStatusHolder
 import com.afu.ledger.auto.RecognitionEntry
 import com.afu.ledger.auto.RecognitionLog
 import com.afu.ledger.data.prefs.DarkModeSetting
@@ -25,6 +27,7 @@ class SettingsViewModel(
     accountRepository: AccountRepository,
     categoryRepository: CategoryRepository,
     private val recognitionLog: RecognitionLog,
+    ocrStatusHolder: OcrStatusHolder,
 ) : ViewModel() {
 
     val settings: StateFlow<ThemeSettings> = themePreferences.settings.stateIn(
@@ -53,6 +56,8 @@ class SettingsViewModel(
         )
 
     val logEntries: StateFlow<List<RecognitionEntry>> = recognitionLog.entries
+
+    val ocrStatus: StateFlow<OcrStatus> = ocrStatusHolder.state
 
     fun setThemeColor(colorId: String) {
         viewModelScope.launch { themePreferences.setThemeColor(colorId) }
@@ -83,6 +88,10 @@ class SettingsViewModel(
             autoLedgerSettings.setRecognitionLogEnabled(enabled)
             if (!enabled) recognitionLog.clear()
         }
+    }
+
+    fun setOcrEnabled(enabled: Boolean) {
+        viewModelScope.launch { autoLedgerSettings.setOcrEnabled(enabled) }
     }
 
     fun clearLog() = recognitionLog.clear()

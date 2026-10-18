@@ -242,6 +242,7 @@ private fun SettingsRoute(container: AppContainer, navController: NavHostControl
                     accountRepository = container.accountRepository,
                     categoryRepository = container.categoryRepository,
                     recognitionLog = container.recognitionLog,
+                    ocrStatusHolder = container.ocrStatus,
                 )
             }
         },
@@ -251,6 +252,7 @@ private fun SettingsRoute(container: AppContainer, navController: NavHostControl
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val expenseCategories by viewModel.expenseCategories.collectAsStateWithLifecycle()
     val logEntries by viewModel.logEntries.collectAsStateWithLifecycle()
+    val ocrStatus by viewModel.ocrStatus.collectAsStateWithLifecycle()
     val serviceEnabled = rememberAutoLedgerServiceEnabled()
 
     SettingsScreen(
@@ -260,6 +262,7 @@ private fun SettingsRoute(container: AppContainer, navController: NavHostControl
         accounts = accounts,
         expenseCategories = expenseCategories,
         logEntries = logEntries,
+        ocrStatus = ocrStatus,
         onThemeColorChange = viewModel::setThemeColor,
         onDarkModeChange = viewModel::setDarkMode,
         onBackgroundPick = viewModel::setBackgroundUri,
@@ -269,6 +272,7 @@ private fun SettingsRoute(container: AppContainer, navController: NavHostControl
         onDefaultAccountChange = viewModel::setDefaultAccount,
         onDefaultCategoryChange = viewModel::setDefaultCategory,
         onRecognitionLogChange = viewModel::setRecognitionLogEnabled,
+        onOcrEnabledChange = viewModel::setOcrEnabled,
         onClearLog = viewModel::clearLog,
     )
 }
