@@ -1,5 +1,10 @@
 package com.afu.ledger.ui
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,6 +51,7 @@ import com.afu.ledger.ui.assets.AssetsScreen
 import com.afu.ledger.ui.assets.AssetsViewModel
 import com.afu.ledger.ui.category.CategoryScreen
 import com.afu.ledger.ui.category.CategoryViewModel
+import com.afu.ledger.ui.component.BackgroundLayer
 import com.afu.ledger.ui.home.HomeScreen
 import com.afu.ledger.ui.home.HomeViewModel
 import com.afu.ledger.ui.record.RecordScreen
@@ -73,18 +79,13 @@ fun AfuApp(container: AppContainer) {
         .collectAsStateWithLifecycle(initialValue = ThemeSettings())
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 自定义背景图：图片 + 可读性遮罩
+        // 自定义背景图：可见度/模糊/遮罩可调，加载完成淡入
         themeSettings.backgroundUri?.let { uri ->
-            AsyncImage(
-                model = uri,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.88f)),
+            BackgroundLayer(
+                uri = uri,
+                visibility = themeSettings.backgroundVisibility,
+                blur = themeSettings.backgroundBlur,
+                scrim = themeSettings.backgroundScrim,
             )
         }
 
@@ -121,6 +122,10 @@ fun AfuApp(container: AppContainer) {
                 navController = navController,
                 startDestination = "home",
                 modifier = Modifier.padding(innerPadding),
+                enterTransition = { fadeIn(tween(220)) },
+                exitTransition = { fadeOut(tween(180)) },
+                popEnterTransition = { fadeIn(tween(220)) },
+                popExitTransition = { fadeOut(tween(180)) },
             ) {
                 composable("home") {
                     HomeRoute(container = container, navController = navController)
@@ -139,6 +144,8 @@ fun AfuApp(container: AppContainer) {
                             defaultValue = -1L
                         },
                     ),
+                    enterTransition = { slideInVertically(tween(260)) { it } + fadeIn(tween(160)) },
+                    exitTransition = { slideOutVertically(tween(220)) { it } + fadeOut(tween(160)) },
                 ) { entry ->
                     val id = entry.arguments?.getLong("transactionId") ?: -1L
                     RecordRoute(
@@ -147,7 +154,11 @@ fun AfuApp(container: AppContainer) {
                         onBack = { navController.popBackStack() },
                     )
                 }
-                composable("categories") {
+                composable(
+                    route = "categories",
+                    enterTransition = { slideInVertically(tween(260)) { it } + fadeIn(tween(160)) },
+                    exitTransition = { slideOutVertically(tween(220)) { it } + fadeOut(tween(160)) },
+                ) {
                     CategoryRoute(container = container, onBack = { navController.popBackStack() })
                 }
             }
@@ -266,7 +277,10 @@ private fun SettingsRoute(container: AppContainer, navController: NavHostControl
         onThemeColorChange = viewModel::setThemeColor,
         onDarkModeChange = viewModel::setDarkMode,
         onBackgroundPick = viewModel::setBackgroundUri,
-        onBackgroundReset = { viewModel.setBackgroundUri(null) },
+        onBackgroundReset = viewModel::resetBackground,
+        onBackgroundVisibilityChange = viewModel::setBackgroundVisibility,
+        onBackgroundBlurChange = viewModel::setBackgroundBlur,
+        onBackgroundScrimChange = viewModel::setBackgroundScrim,
         onManageCategories = { navController.navigate("categories") },
         onAutoEnabledChange = viewModel::setAutoEnabled,
         onDefaultAccountChange = viewModel::setDefaultAccount,
