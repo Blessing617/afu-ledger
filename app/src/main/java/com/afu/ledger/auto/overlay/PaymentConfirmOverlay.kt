@@ -2,6 +2,7 @@ package com.afu.ledger.auto.overlay
 
 import android.content.Context
 import android.graphics.PixelFormat
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
@@ -31,9 +32,10 @@ class PaymentConfirmOverlay(
 
     val isShowing: Boolean get() = composeView != null
 
-    fun show(content: @Composable () -> Unit) {
+    fun show(content: @Composable () -> Unit, onFirstFrame: (Long) -> Unit = {}) {
         hide()
 
+        val startedAt = SystemClock.uptimeMillis()
         val owner = ServiceLifecycleOwner().apply { attach() }
         val view = ComposeView(context).apply {
             setViewTreeLifecycleOwner(owner)
@@ -63,7 +65,9 @@ class PaymentConfirmOverlay(
         }.isSuccess
 
         view.post {
-            Log.d(TAG, "post attach=${view.isAttachedToWindow} size=${view.width}x${view.height}")
+            val elapsed = SystemClock.uptimeMillis() - startedAt
+            Log.d(TAG, "post attach=${view.isAttachedToWindow} size=${view.width}x${view.height} 首帧=${elapsed}ms")
+            onFirstFrame(elapsed)
         }
         Log.d(TAG, "addView added=$added")
 

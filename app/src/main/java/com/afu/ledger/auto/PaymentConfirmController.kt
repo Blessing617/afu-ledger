@@ -1,6 +1,7 @@
 package com.afu.ledger.auto
 
 import android.content.Intent
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +44,8 @@ class PaymentConfirmController(
     val isShowing: Boolean get() = overlay.isShowing
 
     fun handleHit(draft: PaymentDraft) {
+        // 命中时间点：用于测量「命中 → 悬浮窗可见」的真实延迟
+        val hitAt = SystemClock.uptimeMillis()
         debugLog("hit amount=${draft.amount.cents} merchant=${draft.merchant}")
 
         // 已经有待确认卡片时不再叠加：服务被系统重绑后内存去重会重置，
@@ -53,7 +56,7 @@ class PaymentConfirmController(
             logger.log(draft.sourcePackage, "同一笔支付，已忽略", draft.amount.cents, draft.merchant)
             return
         }
-        scope.launch { showConfirm(draft) }
+        scope.launch { showConfirm(draft, hitAt) }
     }
 
     fun hide() {
@@ -61,10 +64,10 @@ class PaymentConfirmController(
         overlay.hide()
     }
 
-    private suspend fun showConfirm(draft: PaymentDraft) {
+    private suspend fun showConfirm(draft: PaymentDraft, hitAt: Long) {
         val accounts = container.accountRepository.observeActive().first()
         if (accounts.isEmpty()) {
-            showNoAccount(draft)
+            showNoAccount(draft, hitAt)
             return
         }
 
@@ -87,36 +90,55 @@ class PaymentConfirmController(
 
         overlayError.value = null
         debugLog("showConfirm accounts=${accounts.size} categories=${categories.size}")
-        overlay.show {
-            AfuTheme(themeProvider()) {
-                PaymentConfirmContent(
-                    amountText = MoneyFormatter.formatWithSymbol(draft.amount),
-                    merchant = draft.merchant,
-                    accounts = accounts,
-                    categories = categories,
-                    initialAccountId = accountId,
-                    initialCategoryId = categoryId,
-                    errorText = overlayError.value,
-                    onConfirm = { account, category -> confirm(draft, account, category) },
-                    onIgnore = { ignore(draft) },
-                )
-            }
-        }
+        overlay.show(
+            content = {
+                AfuTheme(themeProvider()) {
+                    PaymentConfirmContent(
+                        amountText = MoneyFormatter.formatWithSymbol(draft.amount),
+                        merchant = draft.merchant,
+                        accounts = accounts,
+                        categories = categories,
+                        initialAccountId = accountId,
+                        initialCategoryId = categoryId,
+                        errorText = overlayError.value,
+                        onConfirm = { account, category -> confirm(draft, account, category) },
+                        onIgnore = { ignore(draft) },
+                    )
+                }
+            },
+            onFirstFrame = { composeMs -> logVisible(draft, hitAt, composeMs) },
+        )
         startTimeout(draft)
     }
 
-    private fun showNoAccount(draft: PaymentDraft) {
+    private fun showNoAccount(draft: PaymentDraft, hitAt: Long) {
         overlayError.value = null
-        overlay.show {
-            AfuTheme(themeProvider()) {
-                NoAccountCard(
-                    amountText = MoneyFormatter.formatWithSymbol(draft.amount),
-                    onOpenApp = { openMainActivity() },
-                    onIgnore = { ignore(draft) },
-                )
-            }
-        }
+        overlay.show(
+            content = {
+                AfuTheme(themeProvider()) {
+                    NoAccountCard(
+                        amountText = MoneyFormatter.formatWithSymbol(draft.amount),
+                        onOpenApp = { openMainActivity() },
+                        onIgnore = { ignore(draft) },
+                    )
+                }
+            },
+            onFirstFrame = { composeMs -> logVisible(draft, hitAt, composeMs) },
+        )
         startTimeout(draft)
+    }
+
+    /** 记录「命中 → 可见」耗时：写入识别日志，供设置页与真机验收查询。 */
+    private fun logVisible(draft: PaymentDraft, hitAt: Long, composeMs: Long) {
+        val totalMs = SystemClock.uptimeMillis() - hitAt
+        debugLog("overlay visible in ${totalMs}ms (compose ${composeMs}ms)")
+        logger.log(
+            packageName = draft.sourcePackage,
+            outcome = "弹窗可见",
+            amountCents = draft.amount.cents,
+            merchant = draft.merchant,
+            detail = "命中→可见 ${totalMs}ms（其中组合 ${composeMs}ms）",
+        )
     }
 
     private fun confirm(draft: PaymentDraft, accountId: Long, categoryId: Long) {
