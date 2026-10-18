@@ -85,14 +85,14 @@ class OcrSampleDetectorTest {
     }
 
     @Test
-    fun `账单详情页在发布版仍然不识别`() {
-        // 发布版不加载账单规则，裸金额 -42.00 不被接受，因此不会弹窗。
-        // 这里如实断言 NO_AMOUNT 而不是 NOT_PAYMENT_PAGE：页面确实带了「支付成功」，
-        // 只是没有可解析的金额 —— 结果同样是「不打扰用户」。
-        assertEquals(
-            MissReason.NO_AMOUNT,
-            miss(releaseDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, billPageTexts))),
+    fun `真实 OCR 文本在账单详情页命中（发布版）`() {
+        // 账单页是当前的主力识别目标，发布版与 debug 版必须一致。
+        val draft = hit(
+            releaseDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, billPageTexts)),
         )
+        assertEquals(Money(4200), draft.amount)
+        assertEquals(PaymentPageType.BILL_DETAIL, draft.pageType)
+        assertEquals("2026101822001456789012345678", draft.tradeNo)
     }
 
     @Test

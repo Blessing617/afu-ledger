@@ -43,6 +43,7 @@ import com.afu.ledger.ui.theme.Spacing
 fun PaymentConfirmContent(
     amountText: String,
     merchant: String?,
+    sourceLabel: String,
     accounts: List<Account>,
     categories: List<Category>,
     initialAccountId: Long,
@@ -60,6 +61,12 @@ fun PaymentConfirmContent(
                 text = "自动记账",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(modifier = Modifier.width(Spacing.xs))
+            Text(
+                text = "· $sourceLabel",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.weight(1f))
             TextButton(onClick = onIgnore) { Text("忽略") }

@@ -170,19 +170,21 @@ class PaymentPageDetectorTest {
         )
     }
 
-    // ---- 账单详情页只在 debug 生效 ----
+    // ---- 账单详情页：发布版与 debug 版行为一致 ----
 
     @Test
-    fun `账单详情页发布版不识别`() {
+    fun `账单详情页发布版可识别`() {
         val snapshot = PageSnapshot(
             PaymentPageRules.ALIPAY_PACKAGE,
             listOf("账单详情", "-25.50", "地铁", "交易单号 2026101822001"),
         )
-        assertEquals(MissReason.NOT_PAYMENT_PAGE, miss(releaseDetector.detect(snapshot)))
+        val draft = hit(releaseDetector.detect(snapshot))
+        assertEquals(Money(2550), draft.amount)
+        assertEquals(PaymentPageType.BILL_DETAIL, draft.pageType)
     }
 
     @Test
-    fun `账单详情页 debug 版可识别`() {
+    fun `账单详情页 debug 版也可识别`() {
         val debugDetector = PaymentPageDetector(debugPackageName = "com.afu.ledger")
         val snapshot = PageSnapshot(
             PaymentPageRules.ALIPAY_PACKAGE,
@@ -191,6 +193,134 @@ class PaymentPageDetectorTest {
         val draft = hit(debugDetector.detect(snapshot))
         assertEquals(Money(2550), draft.amount)
         assertEquals(PaymentPageType.BILL_DETAIL, draft.pageType)
+    }
+
+    // ---- 真机事故回归：这些页面都必须被排除 ----
+
+    @Test
+    fun `支付宝我的页被排除`() {
+        // 真机实测：停在这个页面时弹出过 ¥25.00，商户名取到了广告文案「放心消费在身边」
+        val texts = listOf(
+            "Blessing",
+            "卡包",
+            "支付宝会员",
+            "账单",
+            "总资产",
+            "余额",
+            "银行卡",
+            "最近消息",
+            "天猫 付款成功 ¥25.00",
+            "¥25.00",
+        )
+        assertEquals(
+            MissReason.MAIN_SCREEN,
+            miss(releaseDetector.detect(PageSnapshot(PaymentPageRules.ALIPAY_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `支付宝首页被排除`() {
+        val texts = listOf(
+            "上海",
+            "公积金查询",
+            "扫一扫",
+            "收付款",
+            "出行",
+            "卡包",
+            "市民中心",
+            "余额宝",
+            "最近消息 天猫 付款成功 ¥25.00",
+            "¥25.00",
+        )
+        assertEquals(
+            MissReason.MAIN_SCREEN,
+            miss(releaseDetector.detect(PageSnapshot(PaymentPageRules.ALIPAY_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `微信账单列表页被排除`() {
+        val texts = listOf(
+            "账单",
+            "全部账单",
+            "查找交易",
+            "收支统计",
+            "2026年10月 支出¥430.60 收入¥400.80",
+            "美团 10月18日 20:10 -23.90",
+            "Valve 10月17日 23:50 -42.00",
+            "阿佑鲜烫牛肉米线 10月16日 12:09 -26.80",
+            "微信红包 10月15日 21:34 +128.50",
+        )
+        assertEquals(
+            MissReason.MAIN_SCREEN,
+            miss(releaseDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `微信我页被排除`() {
+        val texts = listOf(
+            "Blessing",
+            "服务",
+            "收藏",
+            "朋友圈",
+            "卡包",
+            "表情",
+            "设置",
+            "天猫 付款成功 ¥25.00",
+            "¥25.00",
+        )
+        assertEquals(
+            MissReason.MAIN_SCREEN,
+            miss(releaseDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `只有通用词汇不算账单页`() {
+        val texts = listOf("交易", "订单", "金额", "实付", "合计", "¥25.50")
+        assertEquals(
+            MissReason.NOT_PAYMENT_PAGE,
+            miss(releaseDetector.detect(PageSnapshot(PaymentPageRules.ALIPAY_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `账单详情页提取交易单号`() {
+        val texts = listOf(
+            "账单详情",
+            "美团",
+            "-23.90",
+            "当前状态",
+            "支付成功",
+            "交易单号",
+            "4500000576202610184019086744",
+            "商户单号",
+            "20261018200955U1883159793807781",
+            "支付时间",
+            "2026年10月18日20:10:02",
+        )
+        val draft = hit(releaseDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, texts)))
+        assertEquals("4500000576202610184019086744", draft.tradeNo)
+        assertEquals("微信", draft.source)
+        assertEquals(Money(2390), draft.amount)
+    }
+
+    @Test
+    fun `指纹优先用交易单号`() {
+        val base = PaymentDraft(
+            amount = Money(2390),
+            merchant = "美团",
+            sourcePackage = PaymentPageRules.WECHAT_PACKAGE,
+            pageType = PaymentPageType.BILL_DETAIL,
+            capturedAt = 1_700_000_000_000L,
+            tradeNo = "4500000576202610184019086744",
+        )
+        val changed = base.copy(merchant = "美团外卖", amount = Money(2500))
+        assertEquals(base.fingerprint(), changed.fingerprint())
+
+        val noTradeNo = base.copy(tradeNo = null)
+        assertTrue(noTradeNo.fingerprint().contains("2390"))
     }
 
     @Test

@@ -51,13 +51,14 @@ class NodePathPolicyTest {
     }
 
     @Test
-    fun `支付宝账单详情页在发布版因无裸金额规则而放弃`() {
-        // 发布版不加载账单详情规则，裸负金额不被接受 —— 结果应是「不打扰用户」，
-        // 而不是错误入账。
+    fun `支付宝账单详情页在发布版同样命中`() {
+        // 账单详情页是当前的主力目标：裸负金额必须被接受，且发布版与 debug 一致。
         val result = releaseDetector.detect(
             PageSnapshot(PaymentPageRules.ALIPAY_PACKAGE, alipayBillTexts),
         )
-        assertTrue(result is DetectionResult.Missed)
+        assertTrue("期望命中，实际 $result", result is DetectionResult.Hit)
+        assertEquals(2550L, (result as DetectionResult.Hit).draft.amount.cents)
+        assertEquals(PaymentPageType.BILL_DETAIL, result.draft.pageType)
     }
 
     @Test

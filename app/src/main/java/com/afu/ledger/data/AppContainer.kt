@@ -3,6 +3,7 @@ package com.afu.ledger.data
 import android.content.Context
 import com.afu.ledger.auto.AutoLedgerSettingsRepository
 import com.afu.ledger.auto.OcrStatusHolder
+import com.afu.ledger.auto.ProcessedBillStore
 import com.afu.ledger.auto.RecognitionLog
 import com.afu.ledger.auto.RecordDetectedPaymentUseCase
 import com.afu.ledger.auto.keepalive.KeepAliveStateStore
@@ -34,6 +35,9 @@ class AppContainer(context: Context) {
 
     /** 识别日志只存在内存里，进程结束即清空。 */
     val recognitionLog: RecognitionLog = RecognitionLog()
+
+    /** 已处理过的账单指纹（忽略 / 已入账 / 刚弹过），持久化以免重启后重复打扰。 */
+    val processedBills: ProcessedBillStore = ProcessedBillStore(context.applicationContext)
 
     /** 截图 OCR 的运行状态，同样只存在内存里。 */
     val ocrStatus: OcrStatusHolder = OcrStatusHolder()
