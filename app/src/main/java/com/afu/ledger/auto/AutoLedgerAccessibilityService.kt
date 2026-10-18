@@ -70,6 +70,14 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
     @Volatile
     private var settings = AutoLedgerSettings()
 
+    /** 上一次事件里微信页面的 class，用来识别「在同一 Activity 内翻页」。 */
+    @Volatile
+    private var lastEventClass: String? = null
+
+    /** 累积的「用户换了页面」标记，等到真正判定时才消费掉。 */
+    @Volatile
+    private var pageChangePending: Boolean = false
+
     @Volatile
     private var themeSettings = ThemeSettings()
 
@@ -117,16 +125,34 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         if (!settings.enabled) return
         if (!isSupportedPackage(packageName)) return
 
+        val clicked = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED
         val kind = when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> ScreenshotThrottle.EventKind.WINDOW_STATE_CHANGED
             else -> ScreenshotThrottle.EventKind.CONTENT_CHANGED
         }
 
+        // 微信在同一个 Activity 内翻页（聊天 → 账单列表 → 账单详情）只发内容变化事件。
+        // 两个信号用来识别「用户翻到了新页面」：
+        //   1. 点击 —— 翻页必然伴随点击，这是最可靠的
+        //   2. 页面类名变化 —— 但内容变化事件的 className 常常是 ViewGroup/LinearLayout
+        //      这种控件类名，所以在同一页面里也会来回变，必须把 android.* 前缀的排掉
+        val eventClass = event.className?.toString()?.takeIf { !it.startsWith("android.") }
+        val classChanged = eventClass != null && eventClass != lastEventClass
+        if (eventClass != null) lastEventClass = eventClass
+        debugLog("event class=$eventClass clicked=$clicked classChanged=$classChanged")
+
+        // 「换页」信号必须累积到真正判定那一刻：微信切页后会继续刷一串内容变化事件，
+        // 每次都 cancel 上一个 debounce 任务，如果只保留最后一次事件的标记，
+        // 点击带来的「换页」就被后面的内容事件冲掉了，结果又被 8 秒节流拦下（实测踩过）。
+        if (clicked || classChanged) pageChangePending = true
+
         // 页面渲染往往连续触发多个事件，合并到一次识别；这同时是「页面已稳定」的判定
         pendingJob?.cancel()
         pendingJob = scope.launch {
             delay(DEBOUNCE_MILLIS)
-            inspect(packageName, kind)
+            val pageChanged = pageChangePending
+            pageChangePending = false
+            inspect(packageName, kind, pageChanged)
         }
     }
 
@@ -148,7 +174,11 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
     private val debugOcrPackage: String?
         get() = if (BuildConfig.DEBUG) this.packageName else null
 
-    private suspend fun inspect(packageName: String, kind: ScreenshotThrottle.EventKind) {
+    private suspend fun inspect(
+        packageName: String,
+        kind: ScreenshotThrottle.EventKind,
+        pageChanged: Boolean,
+    ) {
         val recognition = engine ?: return
         val result = recognition.detect(
             packageName = packageName,
@@ -156,6 +186,7 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
             screenInteractive = isScreenInteractive(),
             overlayShowing = confirmController?.isShowing == true,
             ocrAllowed = settings.ocrEnabled,
+            pageChanged = pageChanged,
         )
         when (result) {
             is AutoRecognitionEngine.EngineResult.Hit -> confirmController?.handleHit(result.draft)

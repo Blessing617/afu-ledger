@@ -45,11 +45,12 @@ class OcrTextChannel(
         kind: ScreenshotThrottle.EventKind,
         screenInteractive: Boolean,
         overlayShowing: Boolean,
+        pageChanged: Boolean = false,
     ): ReadResult {
         if (!capturer.isSupported) {
             return ReadResult.Failed(MissReason.OCR_UNAVAILABLE, "系统版本不支持截图")
         }
-        if (!throttle.shouldCapture(kind, screenInteractive, overlayShowing)) {
+        if (!throttle.shouldCapture(kind, screenInteractive, overlayShowing, pageChanged)) {
             return ReadResult.Skipped
         }
 
