@@ -1,6 +1,9 @@
 package com.afu.ledger.ui
 
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -61,6 +64,7 @@ import com.afu.ledger.ui.assets.AssetsViewModel
 import com.afu.ledger.ui.category.CategoryScreen
 import com.afu.ledger.ui.category.CategoryViewModel
 import com.afu.ledger.ui.component.BackgroundLayer
+import com.afu.ledger.ui.component.rememberMotionEnabled
 import com.afu.ledger.ui.home.HomeScreen
 import com.afu.ledger.ui.home.HomeViewModel
 import com.afu.ledger.ui.record.RecordScreen
@@ -90,6 +94,9 @@ fun AfuApp(container: AppContainer) {
     val isOverlay = overlayRoute != null && overlayRoute != TAB_HOST
 
     var currentTab by rememberSaveable { mutableStateOf(bottomTabs.first().route) }
+
+    // 系统关闭动画（动画缩放 0 / 减弱动效）时退化为瞬时切换，而不是「变慢」
+    val motionEnabled = rememberMotionEnabled()
 
     val themeSettings by container.themePreferences.settings
         .collectAsStateWithLifecycle(initialValue = ThemeSettings())
@@ -158,12 +165,22 @@ fun AfuApp(container: AppContainer) {
                     navController = navController,
                     startDestination = TAB_HOST,
                     enterTransition = {
-                        slideInVertically(tween(300)) { full -> full / 3 } + fadeIn(tween(300))
+                        if (!motionEnabled) {
+                            EnterTransition.None
+                        } else {
+                            slideInVertically(tween(300)) { full -> full / 3 } + fadeIn(tween(300))
+                        }
                     },
-                    exitTransition = { fadeOut(tween(90)) },
-                    popEnterTransition = { fadeIn(tween(210)) },
+                    exitTransition = { if (!motionEnabled) ExitTransition.None else fadeOut(tween(90)) },
+                    popEnterTransition = {
+                        if (!motionEnabled) EnterTransition.None else fadeIn(tween(210))
+                    },
                     popExitTransition = {
-                        slideOutVertically(tween(300)) { full -> full / 3 } + fadeOut(tween(240))
+                        if (!motionEnabled) {
+                            ExitTransition.None
+                        } else {
+                            slideOutVertically(tween(300)) { full -> full / 3 } + fadeOut(tween(240))
+                        }
                     },
                 ) {
                     composable(TAB_HOST) { /* 占位：标签页在 NavHost 之外 */ }
@@ -200,9 +217,10 @@ private fun TabPage(
     content: @Composable () -> Unit,
 ) {
     val visible = route == current
+    val motionEnabled = rememberMotionEnabled()
     val alpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 160),
+        animationSpec = if (motionEnabled) tween(durationMillis = 160) else snap(),
         label = "tabAlpha",
     )
     Box(
