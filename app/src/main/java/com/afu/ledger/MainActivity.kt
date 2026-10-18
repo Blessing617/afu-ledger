@@ -49,10 +49,8 @@ class MainActivity : ComponentActivity() {
                 .collectAsStateWithLifecycle(initialValue = initialTheme)
 
             AfuTheme(settings = themeSettings) {
-                // 卡片底色随背景可见度联动：图越明显卡片越透，但留 0.72 的下限保证可读
-                val surfaceAlpha = (0.96f - themeSettings.backgroundVisibility * 0.24f)
-                    .coerceIn(0.72f, 0.96f)
-                CompositionLocalProvider(LocalSurfaceAlpha provides surfaceAlpha) {
+                // 卡片不透明度完全由用户在设置里调：想要图就调低，想要清晰就调高
+                CompositionLocalProvider(LocalSurfaceAlpha provides themeSettings.cardOpacity) {
                     AfuApp(container = container)
                 }
             }

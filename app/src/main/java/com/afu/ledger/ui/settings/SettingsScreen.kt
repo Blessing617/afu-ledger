@@ -72,6 +72,7 @@ fun SettingsScreen(
     onBackgroundVisibilityChange: (Float) -> Unit,
     onBackgroundBlurChange: (Boolean) -> Unit,
     onBackgroundScrimChange: (Boolean) -> Unit,
+    onCardOpacityChange: (Float) -> Unit,
     onManageCategories: () -> Unit,
     onAutoEnabledChange: (Boolean) -> Unit,
     onDefaultAccountChange: (Long?) -> Unit,
@@ -209,6 +210,23 @@ fun SettingsScreen(
                         onCheckedChange = onBackgroundScrimChange,
                     )
                 }
+
+                Spacer(Modifier.height(Spacing.md))
+                // 内容卡片不透明度：完全由用户决定「要图还是要字」
+                var cardValue by remember(settings.cardOpacity) {
+                    mutableFloatStateOf(settings.cardOpacity)
+                }
+                Text(
+                    text = "内容卡片不透明度 ${(cardValue * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Slider(
+                    value = cardValue,
+                    onValueChange = { cardValue = it },
+                    onValueChangeFinished = { onCardOpacityChange(cardValue) },
+                    valueRange = ThemeSettings.MIN_CARD_OPACITY..1f,
+                )
             }
         }
 

@@ -41,7 +41,10 @@ fun EmptyState(
     ) {
         Column(
             modifier = Modifier
-                .background(MaterialTheme.colorScheme.surface, CardShape)
+                .background(
+                    MaterialTheme.colorScheme.surface.copy(alpha = LocalSurfaceAlpha.current),
+                    CardShape,
+                )
                 .padding(horizontal = 28.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
