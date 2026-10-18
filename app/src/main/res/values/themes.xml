@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.AfuLedger" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@android:color/transparent</item>
+        <!-- 启动窗口底色：不能用 transparent，否则冷启动会先闪一帧黑屏 -->
+        <item name="android:windowBackground">@color/launch_background</item>
     </style>
 </resources>

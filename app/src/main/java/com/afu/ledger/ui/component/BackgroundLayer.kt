@@ -46,7 +46,12 @@ fun BackgroundLayer(
         Modifier
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            // 图片就绪前先铺主题底色：否则会露出窗口黑底，观感像闪黑屏
+            .background(MaterialTheme.colorScheme.background),
+    ) {
         AsyncImage(
             model = uri,
             contentDescription = null,
