@@ -13,10 +13,10 @@ import androidx.compose.ui.unit.dp
 import com.afu.ledger.ui.theme.CardShape
 
 /**
- * 应用统一卡片：大圆角、无边框、轻阴影。
+ * 应用统一卡片：大圆角、无边框、无阴影。
  *
- * 底色不透明度取自 [LocalSurfaceAlpha] —— 由用户在设置里调，
- * 想让背景图透出来就调低，想文字更清晰就调高。
+ * 不用阴影：卡片是半透明的（不透明度由用户调），阴影会沿着圆角显出一圈色边，
+ * 在背景图上尤其明显。层级感交给底色与间距，不靠投影。
  */
 @Composable
 fun AfuCard(
@@ -30,7 +30,7 @@ fun AfuCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = LocalSurfaceAlpha.current),
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(modifier = Modifier.padding(contentPadding), content = content)
     }
