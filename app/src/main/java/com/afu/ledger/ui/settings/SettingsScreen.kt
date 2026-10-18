@@ -33,6 +33,12 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -165,14 +171,20 @@ fun SettingsScreen(
 
             if (settings.backgroundUri != null) {
                 Spacer(Modifier.height(Spacing.sm))
+                // 拖动期间只更新本地状态，松手才写 DataStore：
+                // 否则每一帧都触发一次磁盘写入 + 全树重组，滑块会明显发涩
+                var sliderValue by remember(settings.backgroundVisibility) {
+                    mutableFloatStateOf(settings.backgroundVisibility)
+                }
                 Text(
-                    text = "可见度 ${(settings.backgroundVisibility * 100).roundToInt()}%",
+                    text = "可见度 ${(sliderValue * 100).roundToInt()}%",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Slider(
-                    value = settings.backgroundVisibility,
-                    onValueChange = onBackgroundVisibilityChange,
+                    value = sliderValue,
+                    onValueChange = { sliderValue = it },
+                    onValueChangeFinished = { onBackgroundVisibilityChange(sliderValue) },
                     valueRange = 0f..1f,
                 )
                 Row(
@@ -209,20 +221,26 @@ fun SettingsScreen(
             TextButton(onClick = onManageCategories) { Text("管理分类") }
         }
 
-        AutoLedgerSection(
-            settings = autoSettings,
-            serviceEnabled = serviceEnabled,
-            accounts = accounts,
-            categories = expenseCategories,
-            logEntries = logEntries,
-            ocrStatus = ocrStatus,
-            onEnabledChange = onAutoEnabledChange,
-            onDefaultAccountChange = onDefaultAccountChange,
-            onDefaultCategoryChange = onDefaultCategoryChange,
-            onRecognitionLogChange = onRecognitionLogChange,
-            onOcrEnabledChange = onOcrEnabledChange,
-            onClearLog = onClearLog,
-        )
+        // 自动记账区块最重（多组 FlowRow + 日志列表）：
+        // 延迟到首帧之后再组合，避免每次切到设置页时卡一下
+        var heavyReady by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { heavyReady = true }
+        if (heavyReady) {
+            AutoLedgerSection(
+                settings = autoSettings,
+                serviceEnabled = serviceEnabled,
+                accounts = accounts,
+                categories = expenseCategories,
+                logEntries = logEntries,
+                ocrStatus = ocrStatus,
+                onEnabledChange = onAutoEnabledChange,
+                onDefaultAccountChange = onDefaultAccountChange,
+                onDefaultCategoryChange = onDefaultCategoryChange,
+                onRecognitionLogChange = onRecognitionLogChange,
+                onOcrEnabledChange = onOcrEnabledChange,
+                onClearLog = onClearLog,
+            )
+        }
     }
 }
 

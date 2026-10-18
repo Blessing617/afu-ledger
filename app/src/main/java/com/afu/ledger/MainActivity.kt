@@ -1,8 +1,12 @@
 package com.afu.ledger
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -14,6 +18,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
 class MainActivity : ComponentActivity() {
+
+    /** 通知权限只影响「常驻通知是否可见」，拒绝后自动记账仍然可用。 */
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 结果由设置页读取系统状态 */ }
 
     override fun onResume() {
         super.onResume()
@@ -34,6 +42,8 @@ class MainActivity : ComponentActivity() {
         // 换来的是「不先渲染默认主题再切走」。否则整棵树要重组两次，还会闪一下。
         val initialTheme = runBlocking { container.themePreferences.settings.first() }
 
+        maybeRequestNotificationPermission()
+
         setContent {
             val themeSettings by container.themePreferences.settings
                 .collectAsStateWithLifecycle(initialValue = initialTheme)
@@ -46,6 +56,15 @@ class MainActivity : ComponentActivity() {
                     AfuApp(container = container)
                 }
             }
+        }
+    }
+
+    private fun maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            runCatching { requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }
         }
     }
 }

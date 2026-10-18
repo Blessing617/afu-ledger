@@ -2,6 +2,7 @@ package com.afu.ledger.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -21,8 +22,8 @@ import com.afu.ledger.ui.theme.CardShape
 /**
  * 空状态：图标 + 标题 + 说明 + 可选操作。
  *
- * 底色保持不透明：空状态是引导页，必须在任何背景下都能读。
- * 「想看大图」的场景是列表页 —— 卡片之间会露出背景，由可见度滑块控制。
+ * 卡片只包住内容本身（不铺满整行），这样背景图在两侧能露出来；
+ * 同时保持不透明底色，保证任何背景下文字都可读。
  */
 @Composable
 fun EmptyState(
@@ -32,31 +33,36 @@ fun EmptyState(
     icon: ImageVector = Icons.Outlined.SentimentSatisfiedAlt,
     action: (@Composable () -> Unit)? = null,
 ) {
-    Column(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 16.dp)
-            .background(MaterialTheme.colorScheme.surface, CardShape)
-            .padding(28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(vertical = 16.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-        )
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = description,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        action?.invoke()
+        Column(
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.surface, CardShape)
+                .padding(horizontal = 28.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            action?.invoke()
+        }
     }
 }
