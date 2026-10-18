@@ -103,7 +103,7 @@ fun AccountBalance.toDomain(): AccountWithBalance = AccountWithBalance(
 )
 
 private fun parseAccountType(raw: String): AccountType =
-    runCatching { AccountType.valueOf(raw) }.getOrDefault(AccountType.CASH)
+    runCatching { AccountType.valueOf(raw) }.getOrDefault(AccountType.WECHAT)
 
 private fun parseTransType(raw: String): TransType =
     runCatching { TransType.valueOf(raw) }.getOrDefault(TransType.EXPENSE)
