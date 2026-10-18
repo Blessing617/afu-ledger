@@ -28,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -487,6 +488,18 @@ private fun SettingsRoute(container: AppContainer, navController: NavHostControl
     val ocrStatus by viewModel.ocrStatus.collectAsStateWithLifecycle()
     val serviceEnabled = rememberAutoLedgerServiceEnabled()
 
+    // 记住「曾经开过」：用来区分「从没设置」与「被系统撤销」，
+    // 后者的引导需要解释原因（多半是被从最近任务划掉了）。
+    var wasEverEnabled by remember { mutableStateOf(false) }
+    LaunchedEffect(serviceEnabled) {
+        if (serviceEnabled) {
+            container.keepAliveState.markEverEnabled()
+            wasEverEnabled = true
+        } else {
+            wasEverEnabled = container.keepAliveState.wasEverEnabledNow()
+        }
+    }
+
     SettingsScreen(
         settings = settings,
         autoSettings = autoSettings,
@@ -495,6 +508,7 @@ private fun SettingsRoute(container: AppContainer, navController: NavHostControl
         expenseCategories = expenseCategories,
         logEntries = logEntries,
         ocrStatus = ocrStatus,
+        wasEverEnabled = wasEverEnabled,
         onThemeColorChange = viewModel::setThemeColor,
         onDarkModeChange = viewModel::setDarkMode,
         onBackgroundPick = viewModel::setBackgroundUri,

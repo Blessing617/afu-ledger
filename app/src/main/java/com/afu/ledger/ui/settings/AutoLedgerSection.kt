@@ -57,6 +57,7 @@ fun AutoLedgerSection(
     logEntries: List<RecognitionEntry>,
     ocrStatus: OcrStatus,
     keepAliveState: KeepAliveUiState,
+    wasEverEnabled: Boolean,
     onEnabledChange: (Boolean) -> Unit,
     onDefaultAccountChange: (Long?) -> Unit,
     onDefaultCategoryChange: (Long?) -> Unit,
@@ -105,7 +106,7 @@ fun AutoLedgerSection(
         if (!serviceEnabled) {
             // 授权步骤（只在没开时出现）
             KeepAliveSetupGuide(
-                serviceEnabled = serviceEnabled,
+                wasEverEnabled = wasEverEnabled,
                 onOpenAccessibility = { context.startActivity(accessibilitySettingsIntent()) },
                 onOpenAppDetails = { context.startActivity(appDetailsIntent(context)) },
             )
@@ -250,15 +251,39 @@ private const val RecognitionLogLineLimit = 8
 
 /**
  * 授权引导。只在无障碍服务没开时出现。
+ *
+ * 两种「没开」要分开说，否则用户只会看到一句「未开启」而不知道发生了什么：
+ *
+ * - **从没开过** → 就是还没设置，引导去开
+ * - **开过又没了** → 几乎一定是被系统撤销了。最常见的原因是把它从最近任务划掉
+ *   （划掉 = force-stop，Android 会连带撤销无障碍权限，这是平台行为，应用层无法阻止）。
+ *   这种情况下直接告诉用户原因，比让他莫名其妙地再点一遍要好。
  */
 @Composable
 private fun KeepAliveSetupGuide(
-    serviceEnabled: Boolean,
+    wasEverEnabled: Boolean,
     onOpenAccessibility: () -> Unit,
     onOpenAppDetails: () -> Unit,
 ) {
+    if (wasEverEnabled) {
+        Text(
+            text = "自动记账被关闭了",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
+        Text(
+            text = "你之前开启过，现在系统里已经没有它了。最常见的原因是把它从最近任务里" +
+                "划掉 —— 划掉等于强制停止，Android 会连带撤销无障碍权限。" +
+                "重新开启后，尽量别划掉它。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-        TextButton(onClick = onOpenAccessibility) { Text("去开启无障碍服务") }
+        TextButton(onClick = onOpenAccessibility) {
+            Text(if (wasEverEnabled) "重新开启无障碍服务" else "去开启无障碍服务")
+        }
         TextButton(onClick = onOpenAppDetails) { Text("应用信息") }
     }
     Text(

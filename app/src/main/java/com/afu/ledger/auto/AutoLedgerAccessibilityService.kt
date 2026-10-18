@@ -99,8 +99,16 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
 
         // 系统可能重复绑定；复用实例，别把还活着的悬浮窗引用丢了
         val activeOverlay = overlay ?: PaymentConfirmOverlay(this).also { overlay = it }
-        // 预热组合环境：把首次弹出的 Compose 初始化开销挪到服务连接时
-        activeOverlay.warmUp()
+
+        // 悬浮窗预热**不能**直接在这里同步做。
+        //
+        // warmUp 会创建 ComposeView、初始化 Compose 组合环境并 addView 一个窗口，
+        // 这是重活。放在 onServiceConnected 的同步路径上会拖慢服务连接，
+        // 系统侧的「wait for adding window timeout」会被触发（约 20 秒），
+        // 之后绑定被放弃 —— 表现就是「明明开了无障碍，设置页却显示未开启」。
+        // 挪到主线程的下一个循环里执行，连接过程立刻返回，预热照常完成。
+        Handler(Looper.getMainLooper()).post { activeOverlay.warmUp() }
+
         val activeLogger = AutoLedgerLogger(
             recognitionLog = app.container.recognitionLog,
             enabledProvider = { settings.recognitionLogEnabled },
