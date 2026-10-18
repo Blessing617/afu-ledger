@@ -58,15 +58,23 @@ class ScreenshotThrottle(
         kind: EventKind,
         screenInteractive: Boolean,
         overlayShowing: Boolean,
+        pageChanged: Boolean = false,
     ): Boolean {
         if (!screenInteractive) return reject(Decision.SCREEN_OFF)
         if (overlayShowing) return reject(Decision.OVERLAY_SHOWING)
 
-        // 新的窗口状态变化说明用户有了新动作，退避归零
-        if (kind == EventKind.WINDOW_STATE_CHANGED) resetBackoff()
+        // 微信在单个 Activity 内翻页（聊天 → 账单列表 → 账单详情）只发内容变化事件，
+        // 不会发窗口状态变化。所以「窗口变化」或「页面 class 变了」都算用户翻到了新页面：
+        // 退避归零，并按切页的短间隔放行——否则用户翻得比 8 秒快就全被拦掉，直接漏记。
+        val newPage = kind == EventKind.WINDOW_STATE_CHANGED || pageChanged
+        if (newPage) resetBackoff()
 
         val now = clock()
-        val interval = currentIntervalMillis(kind)
+        val interval = if (newPage) {
+            config.minIntervalWindowMillis
+        } else {
+            currentIntervalMillis(kind)
+        }
         if (lastShotAt != NEVER && now - lastShotAt < interval) {
             return reject(Decision.THROTTLED)
         }
