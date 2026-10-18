@@ -30,6 +30,42 @@
 | 事件被节流逻辑自己吞掉 | 识别日志里应能看到「event pkg=」的 debug 记录 |
 | 用户操作路径不在受支持应用 | 复现时确认前台包名 |
 
+## 一之二、实测更正：根因不是冻结
+
+上面的假设在实施阶段被**证伪**。实测数据：
+
+| 测试 | 结果 |
+|---|---|
+| 正常使用 90 秒不操作 | 服务一直在，**没有**自行失效 |
+| `adb shell am force-stop com.afu.ledger` | 服务**立即**从启用列表消失 |
+| 最近任务「锁定」后手动划掉 | **仍然失效** |
+| 电池优化白名单 | 拦不住 force-stop |
+| 把 targetSdk 降到 33（对齐李跳跳） | 同样失效，**targetSdk 不是原因** |
+| 对李跳跳执行 force-stop | 它**同样**从列表消失，说明它也没有保活黑科技 |
+
+**两层真实原因：**
+
+**（1）平台行为，应用层无法阻止**
+`AccessibilityManagerService.onPackagesForceStoppedLocked` 在 force-stop 时会把该包
+从 `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES` 移除。定制 ROM 把「最近任务划掉」
+等同于 force-stop。所以「划掉后失效」只能通过「别划掉」或 Shizuku 写回来规避。
+
+**（2）本应用自己的 bug ——「开关开着却显示未开启」的真正原因**
+`AutoLedgerAccessibilityService.onServiceConnected()` 同步调用了
+`PaymentConfirmOverlay.warmUp()`。后者会创建 `ComposeView`、初始化组合环境并
+`addView` 一个窗口。这段重活阻塞了服务连接，系统侧打出：
+
+```
+W AccessibilityManagerService:  wait for adding window timeout: ~20000
+```
+
+20 秒后系统放弃绑定。于是开关明明开着，设置页却显示未开启，自动记账完全不工作。
+这个现象与被 force-stop 高度相似，是前几轮一直找错方向的原因。
+
+**修复**：把 `warmUp()` 挪到 `Handler(Looper.getMainLooper()).post { ... }`，
+让 `onServiceConnected` 立刻返回。实测修复后服务稳定保持 60 秒以上，
+`enabled=true` 时事件正常送达。
+
 ## 二、方案对比
 
 | 方案 | 作用机制 | 预期效果 | 代价 | 结论 |
@@ -129,3 +165,28 @@ Manifest 需要的声明：
   疑似冻结时给出「去重新开启无障碍服务」入口
 
 实测：`keepAlive foreground=true`（startForeground 成功），进程状态在熄屏前为 TOP(2)。
+
+## 五、实施记录（补充）
+
+在原有实现之上新增/修正：
+
+| 文件 | 作用 |
+|---|---|
+| `AutoLedgerAccessibilityService.kt` | **修复服务连接阻塞**：`warmUp()` 改为 `Handler.post` 异步执行 |
+| `auto/keepalive/AccessibilityWatcher.kt` | `AccessibilityManager` 实时监听服务启停；对外暴露 `isServiceEnabled` / `current` / `refresh`；三种健康态 `HEALTHY` / `SUSPECT_FROZEN` / `PERMISSION_REVOKED` |
+| `auto/keepalive/KeepAliveStateStore.kt` | 持久化「曾经开过」标记，区分「从没设置」与「被撤销」 |
+| `auto/keepalive/BatteryWhitelist.kt` | 电池优化豁免申请 + 小米自启页跳转 |
+| `auto/keepalive/ShizukuGuard.kt` | 借 Shizuku shell 权限把服务写回启用列表（只补自己，保留李跳跳等） |
+| `auto/keepalive/AccessibilityGuardWorker.kt` | WorkManager 15 分钟周期巡检 |
+| `AndroidManifest.xml` | 加 `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`、`ShizukuProvider`、`<queries>`；服务配置加 `flagRequestAccessibilityButton` |
+| `AfuApplication.kt` | 冷启动核对并落盘标记；挂 Shizuku binder/permission 监听，连上即自愈 |
+| `AutoLedgerSection.kt` | 三态状态行 + 一次性引导（锁定任务 / 后台运行 / 可选 Shizuku）+ 通知权限被关的降级提示 |
+
+### 参考的开源实现
+
+| 项目 | 做法 | 本项目的取舍 |
+|---|---|---|
+| `cypressincloud/Tally` | Shizuku + `AccessibilityGuardWorker` 15 分钟巡检写回 | **采纳同样的思路**（代码自行实现，组件名/包名换成本项目的） |
+| 李跳跳 | 实测无任何保活代码；被 force-stop 后同样失效 | 用于证伪「targetSdk 33 所以不掉」的假设 |
+| 小花记账 | ① 关电池优化 ② 自启动 ③ 任务锁定 ④ 建议用 Tasker | 采纳前三条；Tasker 不引入（让用户多装一个 App 不合理） |
+| 钱迹 / AutoAccounting | 承认「进程被杀就要重新开」/ 提供 Root、Shizuku 等多种授权 | 与本结论一致 |
