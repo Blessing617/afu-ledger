@@ -2,11 +2,11 @@
 
 ## 1. 工程骨架
 
-- [ ] 1.1 创建 Gradle 工程（Kotlin DSL，AGP 9.4.1 / Gradle 9.8.1 / compileSdk 36 / minSdk 26）— 验证：`gradle assembleDebug` 成功
-- [ ] 1.2 配置依赖：Compose BOM、Material3、Navigation、Room + KSP、Coil、DataStore — 验证：构建通过
+- [x] 1.1 创建 Gradle 工程（Kotlin DSL，AGP 9.4.1 / Gradle 9.8.1 / compileSdk 37 / minSdk 26）— 验证：`gradle assembleDebug` 成功
+- [x] 1.2 配置依赖：Compose BOM、Material3、Navigation、Room + KSP、Coil、DataStore — 验证：构建通过
 - [ ] 1.3 建立包结构 `ui/ viewmodel/ data/local data/repository data/prefs design/` 与 `Application` 类 — 验证：编译通过
-- [ ] 1.4 配置 `local.properties` 不入库、`.gitignore` 覆盖 build/ 与签名文件 — 验证：`git status` 无构建产物
-- [ ] 1.5 单 Activity + 主题渲染空壳首页 — 验证：装到真机能看到界面
+- [x] 1.4 配置 `local.properties` 不入库、`.gitignore` 覆盖 build/ 与签名文件 — 验证：`git status` 无构建产物
+- [x] 1.5 单 Activity + 主题渲染空壳首页 — 验证：装到真机能看到界面
 
 ## 2. 数据层
 

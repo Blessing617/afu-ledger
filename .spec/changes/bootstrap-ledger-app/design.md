@@ -17,7 +17,7 @@
 
 - 包名：`com.afu.ledger`（如需更换请在实施前提出）
 - minSdk 26（覆盖 Android 8.0+，无障碍与通知 API 均可用）
-- targetSdk 36 / compileSdk 36
+- compileSdk 37（Compose 1.12 依赖要求）/ targetSdk 36
 - 第一版不申请 `INTERNET` 权限，确保「本地优先」可审计
 
 ## 数据模型
@@ -45,14 +45,39 @@ Transaction  id, accountId, categoryId, type(INCOME/EXPENSE),
 ## 架构分层
 
 ```
-ui/            Compose 屏幕与组件（只读状态、发事件）
-viewmodel/     StateFlow<UiState> + 事件处理
-data/
-  local/       Room Entity / DAO / Database
-  repository/  聚合 DAO，暴露 Flow
-  prefs/       DataStore 配置
-design/        Theme、Shapes、颜色、背景容器
+com.afu.ledger
+├── AfuApplication.kt
+├── MainActivity.kt
+├── data/
+│   ├── local/
+│   │   ├── entity/       AccountEntity.kt, CategoryEntity.kt, TransactionEntity.kt
+│   │   ├── dao/          AccountDao.kt, CategoryDao.kt, TransactionDao.kt
+│   │   └── AppDatabase.kt
+│   ├── repository/       AccountRepository.kt, CategoryRepository.kt, TransactionRepository.kt
+│   └── prefs/            ThemePreferences.kt
+├── domain/
+│   ├── model/            Account.kt, Category.kt, Transaction.kt, Money.kt
+│   └── usecase/          按需拆分，不预先造空壳
+├── ui/
+│   ├── theme/            Color.kt, Shape.kt, Type.kt, AfuTheme.kt
+│   ├── component/        AfuCard.kt, AfuButton.kt, AmountText.kt, EmptyState.kt …
+│   ├── home/             HomeScreen.kt, HomeViewModel.kt, HomeUiState.kt
+│   ├── record/           RecordScreen.kt, RecordViewModel.kt, RecordUiState.kt
+│   ├── assets/           AssetsScreen.kt, AssetsViewModel.kt, AssetsUiState.kt
+│   ├── category/         CategoryScreen.kt, CategoryViewModel.kt
+│   └── settings/         SettingsScreen.kt, SettingsViewModel.kt
+└── util/                 日期与金额格式化
 ```
+
+### 代码组织硬性约定（便于审查）
+
+1. **一个文件一个主要类型**；Screen 文件允许包含其私有子 Composable，但不得再放第二个公开 Screen。
+2. **单文件不超过 300 行**，超过即按职责拆分（这是本项目的审查红线）。
+3. **UI 层不得直接访问 DAO**，一律 `Screen → ViewModel → Repository → DAO`。
+4. **按 feature 分包**，每个包自带 `Screen + ViewModel + UiState`，相邻功能不共用 ViewModel。
+5. **颜色、圆角、间距不写魔法数字**，统一在 `ui/theme` 中定义 token。
+6. 每个 Repository 只负责一个聚合根，跨表逻辑放在 Repository 或 usecase，不放 DAO。
+7. Entity 与 domain model 分离，Repository 负责二者映射，UI 只见 domain model。
 
 ## 设计系统要点
 
