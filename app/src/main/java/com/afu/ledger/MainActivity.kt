@@ -3,10 +3,12 @@ package com.afu.ledger
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.afu.ledger.perf.FrameStats
 import com.afu.ledger.ui.AfuApp
+import com.afu.ledger.ui.component.LocalSurfaceAlpha
 import com.afu.ledger.ui.theme.AfuTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -37,7 +39,12 @@ class MainActivity : ComponentActivity() {
                 .collectAsStateWithLifecycle(initialValue = initialTheme)
 
             AfuTheme(settings = themeSettings) {
-                AfuApp(container = container)
+                // 卡片底色随背景可见度联动：图越明显卡片越透，但留 0.72 的下限保证可读
+                val surfaceAlpha = (0.96f - themeSettings.backgroundVisibility * 0.24f)
+                    .coerceIn(0.72f, 0.96f)
+                CompositionLocalProvider(LocalSurfaceAlpha provides surfaceAlpha) {
+                    AfuApp(container = container)
+                }
             }
         }
     }
