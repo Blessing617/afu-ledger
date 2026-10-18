@@ -3,24 +3,24 @@ package com.afu.ledger
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.afu.ledger.data.prefs.ThemeSettings
+import com.afu.ledger.ui.AfuApp
+import com.afu.ledger.ui.theme.AfuTheme
 
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val container = (application as AfuApplication).container
+
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(text = "阿福记账")
-                    }
-                }
+            val themeSettings by container.themePreferences.settings
+                .collectAsStateWithLifecycle(initialValue = ThemeSettings())
+
+            AfuTheme(settings = themeSettings) {
+                AfuApp(container = container)
             }
         }
     }
