@@ -47,7 +47,7 @@
 
 - [x] 6.1 JVM 单测补齐并全绿：`ScreenshotThrottleTest`、`OcrTextSanitizerTest`、`OcrLineBuilderTest`、`OcrSampleDetectorTest` — 验证：`./gradlew test` 全绿。**实测**：98 个测试，0 失败
 - [x] 6.2 debug 模拟页扩场景：`WECHAT_OCR_FULL`、`OCR_NOISE_O`、`OCR_NOISE_BAD`、`OCR_LOW_CONTRAST`、`OCR_CHAT` — 验证：`adb shell am start -n com.afu.ledger/com.afu.ledger.debug.DemoPaymentActivity --es scenario <名字>` 逐个跑，结果符合 design 期望表（记得先退出再进）。**实测**：5 个场景全部符合 —— 2550 命中、`-42.OO`→4200、`¥4Z.5O` 被拒、低对比度 1990 命中、聊天页不弹
-- [ ] 6.3 小米 14 Pro 真机：微信历史账单详情页 OCR 弹窗，金额与页面一致，点「忽略」不入账 — 验证：截图存档 + 识别日志。**未完成**：需要人工在微信里翻到「我 → 服务 → 钱包 → 账单 → 点开一笔旧交易」，属于会碰到用户真实账单的界面操作，留给使用者自己点一次确认。已用「真实微信聊天页」验证了 OCR 通道在微信上确实被触发（读到 5 行文本、判为「不是支付页面」，不弹窗）
+- [x] 6.3 小米 14 Pro 真机：微信历史账单详情页 OCR 弹窗，金额与页面一致，点「忽略」不入账 — 验证：截图存档 + 识别日志。**已完成**：点开微信账单里一笔 −42.00 的交易，悬浮窗显示 ¥42.00 / 商户 Valve / 账户 Cash，与页面一致；点「忽略」后首页无新增交易。**过程中发现并修复了三个节流缺陷**（微信同 Activity 翻页不发窗口事件、className 是控件类名、换页信号被后续事件冲掉），详见 design「真机联调又踩到的三个坑」
 - [x] 6.4 节流实测：在微信内连续浏览 3 分钟，统计截图次数不超过节流上限，无可感知卡顿 — 验证：日志计数 + `adb shell dumpsys batterystats` 对比。**实测**：30 秒持续滚动 490 个事件 → 0 次截图；2.2 秒间隔滚动 8 次 → 6 次判定全被节流拦截
 - [x] 6.5 支付宝回归 + 手动记账 / 资产 / 分类 / 换肤回归 — 验证：支付宝识别弹窗正常；主要页面手测通过。**说明**：支付宝节点通道代码未变，单测全绿；首页/设置页真机手测通过
 - [x] 6.6 权限审计：debug 与 release 合并 Manifest 仍无 `INTERNET` / `SYSTEM_ALERT_WINDOW` / `READ_SMS` / `READ_MEDIA_IMAGES` — 验证：`aapt dump permissions` 输出存档。**实测**：两个 APK 都只有 `com.afu.ledger.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`（androidx 自加的私有权限）
@@ -73,6 +73,8 @@
 | 节流：页面事件密集时只截一次 | ✅ 490 事件 → 0 截图（事件持续变化时推迟） |
 | 节流：连续未命中的退避 | ✅ 单测覆盖（3 次 ×4、5 次 60s） |
 | 节流：窗口状态变化重置退避 | ✅ 单测覆盖 |
+| 节流：用户点击翻页后按短间隔放行 | ✅ 真机：点开账单详情 → 弹窗 |
+| 节流：换页信号不被后续内容事件冲掉 | ✅ 修复后用 `pageChangePending` 累积，真机验证通过 |
 | 节流：息屏与锁屏不截图 | ✅ 代码分支 + 单测 |
 | 节流：非截图范围的应用不触发 | ✅ 支付宝 `shouldUseOcr` 返回 false |
 | 纠错：字母 O 误识别为数字零 | ✅ `OCR_NOISE_O` 真机 4200 |
@@ -90,5 +92,5 @@
 | 隐私：模型内置 APK | ✅ `assets/ocr/*.ort` |
 | 隐私：截图不落盘 | ✅ `files/` 下无截图 |
 | 隐私：不保存原始页面文本 | ✅ 日志截断 200 字，内存环形 |
-| 适配：真机微信 OCR 端到端 | ⚠️ 见 6.3：账单详情页留给使用者手动确认 |
+| 适配：真机微信 OCR 端到端 | ✅ 微信账单详情页真机弹窗 |
 | 适配：持续停留不产生截图风暴 | ✅ 490 事件 0 截图 |
