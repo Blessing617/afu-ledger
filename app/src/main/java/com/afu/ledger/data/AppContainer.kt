@@ -5,6 +5,7 @@ import com.afu.ledger.auto.AutoLedgerSettingsRepository
 import com.afu.ledger.auto.OcrStatusHolder
 import com.afu.ledger.auto.RecognitionLog
 import com.afu.ledger.auto.RecordDetectedPaymentUseCase
+import com.afu.ledger.auto.keepalive.KeepAliveStateStore
 import com.afu.ledger.data.local.AppDatabase
 import com.afu.ledger.data.prefs.ThemePreferences
 import com.afu.ledger.data.repository.AccountRepository
@@ -36,6 +37,9 @@ class AppContainer(context: Context) {
 
     /** 截图 OCR 的运行状态，同样只存在内存里。 */
     val ocrStatus: OcrStatusHolder = OcrStatusHolder()
+
+    /** 「无障碍曾经开过」的持久化标记，用来区分「从没设置」与「被撤销」。 */
+    val keepAliveState: KeepAliveStateStore = KeepAliveStateStore(context.applicationContext)
 
     val recordDetectedPayment: RecordDetectedPaymentUseCase = RecordDetectedPaymentUseCase(
         transactionRepository = transactionRepository,

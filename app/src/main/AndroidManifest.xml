@@ -13,6 +13,11 @@
     -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- 没有这条声明，Shizuku 会认为本应用「没装 Shizuku」而直接不可用 -->
+    <queries>
+        <package android:name="moe.shizuku.privileged.api" />
+    </queries>
+
     <application
         android:name=".AfuApplication"
         android:allowBackup="true"
@@ -21,6 +26,20 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AfuLedger">
+
+        <!--
+          Shizuku 的 provider。**这个不能省**：
+          Shizuku 靠它完成进程间握手，缺了它 ShizukuGuard.isAvailable() 永远返回 false，
+          整个「服务被划掉后自动写回」的能力就是死的。
+          （Tally 的 AndroidManifest 里同样是这一段声明。）
+        -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
