@@ -13,7 +13,10 @@ import kotlin.coroutines.resume
  * 用无障碍服务的截图能力抓一张当前屏幕。
  *
  * 需要 `android:canTakeScreenshot="true"`（已声明）与 API 30+。
- * 截图只存在于内存：硬件缓冲转成 ARGB_8888 后立刻释放，调用方用完位图数据即可丢弃。
+ *
+ * 截图结果直接以 **ARGB_8888 的 [Bitmap]** 交出，不再先转成 IntArray 再由引擎转回 Bitmap：
+ * 缩放要交给系统（Skia native），中间多一次全屏像素拷贝纯属浪费。
+ * 调用方用完必须 [Bitmap.recycle]。
  */
 class ScreenshotCapturer(
     private val service: AccessibilityService,
@@ -25,7 +28,7 @@ class ScreenshotCapturer(
 
     sealed interface CaptureResult {
 
-        data class Success(val image: OcrImage, val elapsedMillis: Long) : CaptureResult
+        data class Success(val image: Bitmap, val elapsedMillis: Long) : CaptureResult
 
         /** 截图失败。[reason] 直接进识别日志。 */
         data class Failure(val reason: String) : CaptureResult
@@ -41,10 +44,13 @@ class ScreenshotCapturer(
         return suspendCancellableCoroutine { continuation ->
             val callback = object : AccessibilityService.TakeScreenshotCallback {
                 override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
-                    val image = runCatching { toOcrImage(screenshot) }
+                    val image = runCatching { toSoftwareBitmap(screenshot) }
                         .onFailure { Log.w(TAG, "截图转换失败：${it.message}") }
                         .getOrNull()
-                    if (!continuation.isActive) return
+                    if (!continuation.isActive) {
+                        image?.recycle()
+                        return
+                    }
                     continuation.resume(
                         if (image == null) {
                             CaptureResult.Failure("截图转换失败")
@@ -71,27 +77,26 @@ class ScreenshotCapturer(
         }
     }
 
-    private fun toOcrImage(result: AccessibilityService.ScreenshotResult): OcrImage? {
+    /**
+     * HardwareBuffer → 软件位图。
+     *
+     * `wrapHardwareBuffer` 给的是 HARDWARE 配置，读不了像素也不能缩放，
+     * 必须拷成 ARGB_8888。这一步是全屏拷贝，无法避免，但比「再逐像素缩放到 det 尺寸」便宜得多。
+     */
+    private fun toSoftwareBitmap(result: AccessibilityService.ScreenshotResult): Bitmap? {
         val buffer = result.hardwareBuffer
         try {
-            // wrapHardwareBuffer 给的是 HARDWARE 配置，读不了像素，必须先拷成 ARGB_8888
             val hardware = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace) ?: return null
             val soft = runCatching {
                 hardware.copy(Bitmap.Config.ARGB_8888, false)
             }.getOrNull()
             hardware.recycle()
             if (soft == null) return null
-
-            val width = soft.width
-            val height = soft.height
-            if (width <= 0 || height <= 0) {
+            if (soft.width <= 0 || soft.height <= 0) {
                 soft.recycle()
                 return null
             }
-            val pixels = IntArray(width * height)
-            soft.getPixels(pixels, 0, width, 0, 0, width, height)
-            soft.recycle()
-            return OcrImage(width, height, pixels)
+            return soft
         } finally {
             runCatching { buffer.close() }
         }

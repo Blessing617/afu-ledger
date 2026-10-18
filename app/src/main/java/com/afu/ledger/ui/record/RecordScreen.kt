@@ -9,9 +9,9 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,22 +21,17 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material3.DatePicker
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,6 +54,14 @@ import com.afu.ledger.ui.theme.InputShape
 import com.afu.ledger.ui.theme.Spacing
 import com.afu.ledger.util.DateFormatter
 
+/**
+ * 记账表单。
+ *
+ * 与「新增账户」保持同一套交互语言：居中卡片 + 遮罩，而不是整页滑入。
+ * 两种「新增一个东西」的操作用同一种层级表现，用户不用学两套。
+ *
+ * 内容比账户表单多，所以正文区可滚动，高度限制在屏幕八成内。
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun RecordScreen(
@@ -80,140 +83,145 @@ fun RecordScreen(
         if (uiState.finished) onBack()
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = { Text(if (uiState.isEditing) "编辑记录" else "记一笔") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Outlined.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    if (uiState.isEditing) {
-                        IconButton(onClick = { showDeleteConfirm = true }) {
-                            Icon(Icons.Outlined.DeleteOutline, contentDescription = "删除")
-                        }
-                    }
-                    IconButton(onClick = onSave, enabled = uiState.canSave) {
-                        Icon(
-                            Icons.Outlined.Check,
-                            contentDescription = "保存",
-                            tint = if (uiState.canSave) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.outline,
-                        )
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = Spacing.lg),
-            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
-        ) {
-            TypeSwitcher(type = uiState.type, onTypeChange = onTypeChange)
-
-            OutlinedTextField(
-                value = uiState.amountInput,
-                onValueChange = onAmountChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("金额") },
-                prefix = { Text("¥", fontSize = 20.sp) },
-                singleLine = true,
-                shape = InputShape,
-                textStyle = MaterialTheme.typography.headlineMedium,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Decimal,
-                    imeAction = ImeAction.Done,
-                ),
-                keyboardActions = KeyboardActions(
-                    onDone = { if (uiState.canSave) onSave() },
-                ),
-            )
-
-            SectionTitle("分类")
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+    AlertDialog(
+        onDismissRequest = onBack,
+        title = { Text(if (uiState.isEditing) "编辑记录" else "记一笔") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
-                uiState.categories.forEach { category ->
-                    val selected = category.id == uiState.selectedCategoryId
-                    Column(
-                        modifier = Modifier.width(64.dp).clickable { onCategorySelect(category.id) },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (selected) Color(category.colorArgb)
-                                    else Color(category.colorArgb).copy(alpha = 0.16f),
-                                ),
-                            contentAlignment = Alignment.Center,
+                TypeSwitcher(type = uiState.type, onTypeChange = onTypeChange)
+
+                OutlinedTextField(
+                    value = uiState.amountInput,
+                    onValueChange = onAmountChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("金额") },
+                    prefix = { Text("¥", fontSize = 20.sp) },
+                    singleLine = true,
+                    shape = InputShape,
+                    textStyle = MaterialTheme.typography.headlineSmall,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Decimal,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = { if (uiState.canSave) onSave() },
+                    ),
+                )
+
+                SectionLabel("分类")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    uiState.categories.forEach { category ->
+                        val selected = category.id == uiState.selectedCategoryId
+                        Column(
+                            modifier = Modifier.width(56.dp).clickable { onCategorySelect(category.id) },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                         ) {
-                            Icon(
-                                imageVector = categoryIcon(category.iconKey),
-                                contentDescription = null,
-                                tint = if (selected) Color.White else Color(category.colorArgb),
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (selected) Color(category.colorArgb)
+                                        else Color(category.colorArgb).copy(alpha = 0.16f),
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = categoryIcon(category.iconKey),
+                                    contentDescription = null,
+                                    tint = if (selected) Color.White else Color(category.colorArgb),
+                                )
+                            }
+                            Text(
+                                text = category.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
                             )
                         }
-                        Text(
-                            text = category.name,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (selected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        )
                     }
                 }
-            }
 
-            SectionTitle("账户")
-            if (uiState.accounts.isEmpty()) {
-                Text(
-                    text = "还没有可用账户，请先到「资产」页创建",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
+                SectionLabel("账户")
+                if (uiState.accounts.isEmpty()) {
+                    Text(
+                        text = "还没有可用账户，请先到「资产」页创建",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        uiState.accounts.forEach { account ->
+                            FilterChip(
+                                selected = account.id == uiState.selectedAccountId,
+                                onClick = { onAccountSelect(account.id) },
+                                label = { Text(account.name) },
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = uiState.note,
+                    onValueChange = onNoteChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("备注（可选）") },
+                    singleLine = true,
+                    shape = InputShape,
                 )
-            } else {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    uiState.accounts.forEach { account ->
-                        FilterChip(
-                            selected = account.id == uiState.selectedAccountId,
-                            onClick = { onAccountSelect(account.id) },
-                            label = { Text(account.name) },
+
+                TextButton(
+                    onClick = { showDatePicker = true },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                ) {
+                    Text("时间：" + DateFormatter.toLocalDate(uiState.occurredAt).toString())
+                }
+
+                uiState.error?.let { error ->
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                if (uiState.isEditing) {
+                    TextButton(
+                        onClick = { showDeleteConfirm = true },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.DeleteOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp),
                         )
+                        Spacer(Modifier.width(Spacing.xs))
+                        Text("删除这笔记录", color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
-
-            OutlinedTextField(
-                value = uiState.note,
-                onValueChange = onNoteChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("备注（可选）") },
-                singleLine = true,
-                shape = InputShape,
-            )
-
-            TextButton(onClick = { showDatePicker = true }) {
-                Text("时间：" + DateFormatter.toLocalDate(uiState.occurredAt).toString())
+        },
+        confirmButton = {
+            TextButton(onClick = onSave, enabled = uiState.canSave) {
+                Text(if (uiState.isEditing) "保存" else "记账")
             }
-
-            uiState.error?.let { error ->
-                Text(text = error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-            }
-
-            Spacer(Modifier.height(Spacing.xxl))
-        }
-    }
+        },
+        dismissButton = {
+            TextButton(onClick = onBack) { Text("取消") }
+        },
+    )
 
     if (showDeleteConfirm) {
         AlertDialog(
@@ -258,9 +266,7 @@ fun RecordScreen(
 @Composable
 private fun TypeSwitcher(type: TransType, onTypeChange: (TransType) -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = Spacing.sm),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         FilterChip(
@@ -279,10 +285,10 @@ private fun TypeSwitcher(type: TransType, onTypeChange: (TransType) -> Unit) {
 }
 
 @Composable
-private fun SectionTitle(text: String) {
+private fun SectionLabel(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.titleMedium,
+        style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }

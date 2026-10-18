@@ -19,8 +19,17 @@ data class ThemeSettings(
         const val DEFAULT_COLOR_ID: String = "default"
         const val DEFAULT_VISIBILITY: Float = 0.5f
 
-        /** 卡片不透明度的可调下限：再低就完全读不清了。 */
-        const val MIN_CARD_OPACITY: Float = 0.35f
+        /**
+         * 卡片不透明度的可调下限。
+         *
+         * 原为 0.35，实测在自定义背景图下：卡片几乎全透明，背景里的人像直接压在
+         * 「自动记账」「默认账户」「餐饮」这些文字上，既读不清，滚动时整片区域
+         * 每帧重新混合，观感就是「糊、卡」。
+         *
+         * 提到 0.6：背景图仍能明显透出来（用户要的「存在感」还在），
+         * 但文字始终可读，半透明区域的合成量也小得多。
+         */
+        const val MIN_CARD_OPACITY: Float = 0.6f
         const val DEFAULT_CARD_OPACITY: Float = 0.95f
     }
 }

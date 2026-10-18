@@ -34,7 +34,9 @@ import com.afu.ledger.ui.component.AfuButton
 import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.component.AmountText
 import com.afu.ledger.ui.component.EmptyState
+import com.afu.ledger.ui.component.effectiveSurfaceAlpha
 import com.afu.ledger.ui.component.categoryIcon
+import com.afu.ledger.ui.theme.CapsuleShape
 import com.afu.ledger.ui.theme.Spacing
 import com.afu.ledger.util.MoneyFormatter
 
@@ -126,8 +128,17 @@ private fun MonthSummaryCard(uiState: HomeUiState) {
 
 @Composable
 private fun DayHeader(group: TransactionGroup) {
+    // 分组标题原先是没有底色的裸文字，直接压在背景图上。
+    // 深色模式下 onSurfaceVariant 是浅灰，遇到背景图的亮区会糊成一片；
+    // 这里给它一个与卡片同源的半透明胶囊底，保证任何背景与主题下都可读。
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.xs),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CapsuleShape)
+            .background(
+                MaterialTheme.colorScheme.surface.copy(alpha = effectiveSurfaceAlpha()),
+            )
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(group.label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

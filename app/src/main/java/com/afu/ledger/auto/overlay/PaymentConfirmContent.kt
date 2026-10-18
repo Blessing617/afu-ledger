@@ -35,6 +35,7 @@ import com.afu.ledger.domain.model.Category
 import com.afu.ledger.ui.component.AfuButton
 import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.component.rememberMotionEnabled
+import com.afu.ledger.ui.component.AfuMotion
 import com.afu.ledger.ui.theme.Spacing
 
 /** 识别成功后的确认卡片。确认前不会写入任何交易。 */
@@ -134,15 +135,15 @@ private fun OverlayCard(content: @Composable () -> Unit) {
     var appeared by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { appeared = true }
 
-    val offsetY by animateDpAsState(
-        targetValue = if (appeared) 0.dp else 48.dp,
-        animationSpec = if (motion) tween(260) else snap(),
-        label = "overlaySlide",
-    )
-    val alpha by animateFloatAsState(
+    // 不要用 `by` 解包：那会在组合阶段读状态，动画每帧都会让整张卡片重组。
+    // 保持 State 引用、在 graphicsLayer 的 lambda 里读，动画就只在 Draw 阶段生效。
+    //
+    // 用 spring 而不是 tween：悬浮窗是从下方「弹出来」的，弹簧的落位感
+    // 比匀速位移自然；同时叠加一点缩放，让它像从底部生长出来而不是平移过来。
+    val progress = animateFloatAsState(
         targetValue = if (appeared) 1f else 0f,
-        animationSpec = if (motion) tween(200) else snap(),
-        label = "overlayFade",
+        animationSpec = if (motion) AfuMotion.settle() else snap(),
+        label = "overlayProgress",
     )
 
     Box(
@@ -150,8 +151,12 @@ private fun OverlayCard(content: @Composable () -> Unit) {
             .fillMaxWidth()
             .padding(Spacing.lg)
             .graphicsLayer {
-                translationY = offsetY.toPx()
-                this.alpha = alpha
+                val p = progress.value
+                translationY = (1f - p) * OVERLAY_RISE_DP.toPx()
+                val scale = OVERLAY_SCALE_FROM + (1f - OVERLAY_SCALE_FROM) * p
+                scaleX = scale
+                scaleY = scale
+                alpha = p
             },
         contentAlignment = Alignment.BottomCenter,
     ) {
@@ -196,3 +201,9 @@ private fun LabeledChips(
 }
 
 private val CARD_WIDTH = 320.dp
+
+/** 悬浮窗出现时的上浮距离。 */
+private val OVERLAY_RISE_DP = 56.dp
+
+/** 悬浮窗出现时的起始缩放：略小，配合上浮形成「从底部生长」的观感。 */
+private const val OVERLAY_SCALE_FROM = 0.92f

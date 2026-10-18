@@ -22,3 +22,6 @@ val CardShape = RoundedCornerShape(20.dp)
 
 /** 输入框统一圆角。 */
 val InputShape = RoundedCornerShape(16.dp)
+
+/** 胶囊形底衬：用于需要「浮在背景图上但仍可读」的窄条容器（如列表日期分组标题）。 */
+val CapsuleShape = RoundedCornerShape(percent = 50)

@@ -53,6 +53,10 @@ class ScreenshotThrottle(
      * 判定本次事件是否允许截图。
      *
      * 放行时会立刻记账（乐观），避免截图失败导致下一次事件又立刻重试形成风暴。
+     *
+     * @param pageChanged 用户主动操作（点击）或页面标识变化带来的「换页」信号。
+     *   该信号 MUST 绕过退避：用户在聊天页待久了退避已经拉满到 60 秒，
+     *   此时点进支付页如果还被退避拦掉，就是最典型的漏记。
      */
     fun shouldCapture(
         kind: EventKind,
@@ -70,13 +74,17 @@ class ScreenshotThrottle(
         if (newPage) resetBackoff()
 
         val now = clock()
-        val interval = if (newPage) {
-            config.minIntervalWindowMillis
-        } else {
-            currentIntervalMillis(kind)
-        }
-        if (lastShotAt != NEVER && now - lastShotAt < interval) {
-            return reject(Decision.THROTTLED)
+        val last = lastShotAt
+        if (last != NEVER) {
+            if (newPage) {
+                // 用户明确的换页动作：只受系统截图最小间隔约束（1.5s），
+                // **不受退避影响**。退避是「连续盲截」的惩罚，惩罚用户主动翻页没有道理。
+                if (now - last < config.minIntervalWindowMillis) {
+                    return reject(Decision.THROTTLED)
+                }
+            } else if (now - last < currentIntervalMillis(kind)) {
+                return reject(Decision.THROTTLED)
+            }
         }
 
         lastShotAt = now

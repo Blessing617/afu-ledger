@@ -28,7 +28,9 @@ fun AfuCard(
         modifier = modifier,
         shape = CardShape,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = LocalSurfaceAlpha.current),
+            // 深色模式会自动提高不透明度：深色卡片压不住背景图的高光，
+            // 浅色文字会与透出来的亮块糊在一起。详见 effectiveSurfaceAlpha。
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = effectiveSurfaceAlpha()),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {

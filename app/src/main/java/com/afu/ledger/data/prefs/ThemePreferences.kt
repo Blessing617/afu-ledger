@@ -35,7 +35,10 @@ class ThemePreferences(
                 backgroundVisibility = prefs[KEY_BG_VISIBILITY] ?: ThemeSettings.DEFAULT_VISIBILITY,
                 backgroundBlur = prefs[KEY_BG_BLUR] ?: false,
                 backgroundScrim = prefs[KEY_BG_SCRIM] ?: true,
-                cardOpacity = prefs[KEY_CARD_OPACITY] ?: ThemeSettings.DEFAULT_CARD_OPACITY,
+                // 夹到当前下限：旧版本允许拖到 0.35，那个档位在自定义背景图下文字不可读，
+                // 读取时夹紧可以让老用户升级后直接获得可读的观感，不必手动调回去。
+                cardOpacity = (prefs[KEY_CARD_OPACITY] ?: ThemeSettings.DEFAULT_CARD_OPACITY)
+                    .coerceIn(ThemeSettings.MIN_CARD_OPACITY, 1f),
             )
         }
 

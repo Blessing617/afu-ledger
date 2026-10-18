@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -58,13 +59,27 @@ fun BackgroundLayer(
     } else {
         Modifier
     }
-    val scrimAlpha = if (scrim) (1f - visibility.coerceIn(0f, 1f)) * 0.92f else 0f
+    val background = MaterialTheme.colorScheme.background
+    val isDarkBackground = background.luminance() < 0.5f
+    val clampedVisibility = visibility.coerceIn(0f, 1f)
+    // 压暗量：
+    //  - 浅色模式：完全按用户设定（可见度越高越不压）
+    //  - 深色模式：在用户设定之上取一个最小下限。深色主题的语义就是「暗」，
+    //    一张亮背景图（照片里常见整片白/高光）会同时毁掉文字对比度与整体氛围。
+    //    用户把可见度拉满、遮罩开着时，浅色模式下 scrimAlpha 会是 0，
+    //    深色模式下这里仍然保留 DARK_MIN_SCRIM 的压暗。
+    val userScrim = if (scrim) (1f - clampedVisibility) * 0.92f else 0f
+    val scrimAlpha = if (isDarkBackground) {
+        maxOf(userScrim, DARK_MIN_SCRIM * (1f - clampedVisibility * 0.4f))
+    } else {
+        userScrim
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             // 图片就绪前铺主题底色，避免露出窗口黑底
-            .background(MaterialTheme.colorScheme.background),
+            .background(background),
     ) {
         AsyncImage(
             model = request,
@@ -74,8 +89,11 @@ fun BackgroundLayer(
             modifier = Modifier
                 .fillMaxSize()
                 .then(blurModifier)
-                .drawWithScrim(scrimAlpha, MaterialTheme.colorScheme.background)
+                .drawWithScrim(scrimAlpha, background)
                 .graphicsLayer { alpha = fade.value },
         )
     }
 }
+
+/** 深色模式下背景图的最小压暗量。 */
+private const val DARK_MIN_SCRIM = 0.55f

@@ -16,6 +16,8 @@ data class OcrStatus(
     val reason: String? = null,
     val lastElapsedMillis: Long = -1L,
     val lastOutcome: String? = null,
+    /** 最近一次识别的分段耗时摘要（节点 / 截图 / OCR / 合计）。 */
+    val lastDetail: String? = null,
 )
 
 class OcrStatusHolder {
@@ -31,8 +33,10 @@ class OcrStatusHolder {
         _state.update { it.copy(available = true, reason = null) }
     }
 
-    fun recordOutcome(elapsedMillis: Long, outcome: String) {
-        _state.update { it.copy(lastElapsedMillis = elapsedMillis, lastOutcome = outcome) }
+    fun recordOutcome(elapsedMillis: Long, outcome: String, detail: String? = null) {
+        _state.update {
+            it.copy(lastElapsedMillis = elapsedMillis, lastOutcome = outcome, lastDetail = detail)
+        }
     }
 
     fun reset() {

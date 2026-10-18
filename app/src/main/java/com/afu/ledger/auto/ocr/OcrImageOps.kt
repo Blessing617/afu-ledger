@@ -1,16 +1,27 @@
 package com.afu.ledger.auto.ocr
 
-import kotlin.math.floor
 import kotlin.math.roundToInt
 
 /**
- * 位图预处理与裁切，纯 Kotlin、无 Android 依赖。
+ * 位图预处理：尺寸计算、裁切，以及「已缩放到目标尺寸」的归一化。
  *
- * 采样一律用双线性：手机截图缩到 960 长边时，最近邻会把细笔画打断，中文小字尤其明显。
+ * ## 为什么不再在这里做缩放
+ *
+ * 旧实现用 Kotlin 双层循环做双线性插值，每输出一个像素要读 4 个源像素、按 3 通道各算 4 次加权。
+ * 全屏 1440×3200 缩到 960 长边时约 41 万个输出像素 × 12 次采样，单线程纯 Kotlin 跑，
+ * 在真机上就是几百毫秒 —— 实测整条识别链路 1894ms，这是最大的一块。
+ *
+ * 现在缩放交给系统（`Bitmap.createScaledBitmap`，最终走 Skia 的 native 实现），
+ * 这里只负责「把已经缩好的 ARGB 像素转成 CHW + 归一化」的逐像素循环。
+ * 逐像素循环的规模仍有 3 × H × W，但不再有插值计算，且不必读 4 个源像素。
+ *
+ * 归一化循环本身也做了两点提速：
+ * 1. 预先把每个通道的偏移与缩放算好，内层只做一次乘加；
+ * 2. 用位运算直接取 R/G/B，避免 `shr` + `and` 的重复计算。
  */
 object OcrImageOps {
 
-    /** det 输入长边上限。越大越准、越慢；960 在小米 14 Pro 上约 200 ms。 */
+    /** det 输入长边上限。越大越准、越慢。 */
     const val DET_LIMIT_SIDE = 960
 
     /** rec 输入固定高度（PP-OCRv4 的约定）。 */
@@ -26,52 +37,41 @@ object OcrImageOps {
     fun detTargetSize(width: Int, height: Int, limitSide: Int = DET_LIMIT_SIDE): IntArray {
         val maxSide = maxOf(width, height)
         val scale = if (maxSide > limitSide) limitSide.toFloat() / maxSide else 1f
-        val nw = ((width * scale / 32f).roundToInt() * 32).coerceAtLeast(32)
-        val nh = ((height * scale / 32f).roundToInt() * 32).coerceAtLeast(32)
+        val nw = ((width * scale / 32f).roundToIntSafe() * 32).coerceAtLeast(32)
+        val nh = ((height * scale / 32f).roundToIntSafe() * 32).coerceAtLeast(32)
         return intArrayOf(nw, nh)
     }
 
-    /** det 输入：CHW + ImageNet 归一化。 */
-    fun detInput(image: OcrImage, targetWidth: Int, targetHeight: Int): FloatArray {
-        val out = FloatArray(3 * targetHeight * targetWidth)
+    /**
+     * det 输入：CHW + ImageNet 归一化。
+     *
+     * [image] 必须**已经是** [targetWidth] × [targetHeight] 的像素，缩放由调用方用系统能力完成。
+     * 尺寸不符时返回 null，让调用方走降级路径，而不是在错误的尺寸上瞎算。
+     */
+    fun detInput(image: OcrImage, targetWidth: Int, targetHeight: Int): FloatArray? {
+        if (image.width != targetWidth || image.height != targetHeight) return null
+
         val planeSize = targetHeight * targetWidth
-        val sx = image.width.toFloat() / targetWidth
-        val sy = image.height.toFloat() / targetHeight
+        val out = FloatArray(3 * planeSize)
 
-        for (y in 0 until targetHeight) {
-            val fy = ((y + 0.5f) * sy - 0.5f).coerceIn(0f, (image.height - 1).toFloat())
-            val y0 = floor(fy).toInt()
-            val y1 = (y0 + 1).coerceAtMost(image.height - 1)
-            val wy = fy - y0
-            val rowBase = y0 * image.width
-            val rowNext = y1 * image.width
+        // 预计算每通道的 (1/std, -mean/std)，内层只做 mul + add
+        val scaleR = 1f / DET_STD[0]
+        val scaleG = 1f / DET_STD[1]
+        val scaleB = 1f / DET_STD[2]
+        val biasR = -DET_MEAN[0] / DET_STD[0]
+        val biasG = -DET_MEAN[1] / DET_STD[1]
+        val biasB = -DET_MEAN[2] / DET_STD[2]
 
-            for (x in 0 until targetWidth) {
-                val fx = ((x + 0.5f) * sx - 0.5f).coerceIn(0f, (image.width - 1).toFloat())
-                val x0 = floor(fx).toInt()
-                val x1 = (x0 + 1).coerceAtMost(image.width - 1)
-                val wx = fx - x0
-
-                val p00 = image.argb[rowBase + x0]
-                val p10 = image.argb[rowBase + x1]
-                val p01 = image.argb[rowNext + x0]
-                val p11 = image.argb[rowNext + x1]
-
-                val w00 = (1 - wx) * (1 - wy)
-                val w10 = wx * (1 - wy)
-                val w01 = (1 - wx) * wy
-                val w11 = wx * wy
-
-                val index = y * targetWidth + x
-                for (c in 0..2) {
-                    val shift = 16 - c * 8
-                    val value = ((p00 shr shift) and 0xFF) * w00 +
-                        ((p10 shr shift) and 0xFF) * w10 +
-                        ((p01 shr shift) and 0xFF) * w01 +
-                        ((p11 shr shift) and 0xFF) * w11
-                    out[c * planeSize + index] = ((value / 255f) - DET_MEAN[c]) / DET_STD[c]
-                }
-            }
+        val pixels = image.argb
+        val inv255 = 1f / 255f
+        for (i in 0 until planeSize) {
+            val p = pixels[i]
+            val r = ((p shr 16) and 0xFF) * inv255
+            val g = ((p shr 8) and 0xFF) * inv255
+            val b = (p and 0xFF) * inv255
+            out[i] = r * scaleR + biasR
+            out[planeSize + i] = g * scaleG + biasG
+            out[2 * planeSize + i] = b * scaleB + biasB
         }
         return out
     }
@@ -80,52 +80,25 @@ object OcrImageOps {
     fun recTargetSize(patch: OcrImage, maxWidth: Int = REC_MAX_WIDTH): IntArray? {
         if (patch.width < 1 || patch.height < 1) return null
         val targetHeight = REC_HEIGHT
-        val targetWidth = ((patch.width.toFloat() * targetHeight / patch.height).roundToInt())
+        val targetWidth = ((patch.width.toFloat() * targetHeight / patch.height).roundToIntSafe())
             .coerceIn(1, maxWidth)
         return intArrayOf(targetWidth, targetHeight)
     }
 
-    /** rec 输入张量。尺寸由 [recTargetSize] 给出。 */
-    fun recTensor(patch: OcrImage, targetWidth: Int, targetHeight: Int): FloatArray {
-        val out = FloatArray(3 * targetHeight * targetWidth)
+    /** rec 输入张量。像素需已缩放到 [targetWidth] × [targetHeight]。 */
+    fun recTensor(patch: OcrImage, targetWidth: Int, targetHeight: Int): FloatArray? {
+        if (patch.width != targetWidth || patch.height != targetHeight) return null
+
         val planeSize = targetHeight * targetWidth
-        val sx = patch.width.toFloat() / targetWidth
-        val sy = patch.height.toFloat() / targetHeight
-
-        for (y in 0 until targetHeight) {
-            val fy = ((y + 0.5f) * sy - 0.5f).coerceIn(0f, (patch.height - 1).toFloat())
-            val y0 = floor(fy).toInt()
-            val y1 = (y0 + 1).coerceAtMost(patch.height - 1)
-            val wy = fy - y0
-            val rowBase = y0 * patch.width
-            val rowNext = y1 * patch.width
-
-            for (x in 0 until targetWidth) {
-                val fx = ((x + 0.5f) * sx - 0.5f).coerceIn(0f, (patch.width - 1).toFloat())
-                val x0 = floor(fx).toInt()
-                val x1 = (x0 + 1).coerceAtMost(patch.width - 1)
-                val wx = fx - x0
-
-                val p00 = patch.argb[rowBase + x0]
-                val p10 = patch.argb[rowBase + x1]
-                val p01 = patch.argb[rowNext + x0]
-                val p11 = patch.argb[rowNext + x1]
-
-                val w00 = (1 - wx) * (1 - wy)
-                val w10 = wx * (1 - wy)
-                val w01 = (1 - wx) * wy
-                val w11 = wx * wy
-
-                val index = y * targetWidth + x
-                for (c in 0..2) {
-                    val shift = 16 - c * 8
-                    val value = ((p00 shr shift) and 0xFF) * w00 +
-                        ((p10 shr shift) and 0xFF) * w10 +
-                        ((p01 shr shift) and 0xFF) * w01 +
-                        ((p11 shr shift) and 0xFF) * w11
-                    out[c * planeSize + index] = (value / 255f - 0.5f) / 0.5f
-                }
-            }
+        val out = FloatArray(3 * planeSize)
+        val pixels = patch.argb
+        val inv255 = 1f / 255f
+        for (i in 0 until planeSize) {
+            val p = pixels[i]
+            // rec 的归一化是 (x/255 - 0.5) / 0.5 = x/127.5 - 1
+            out[i] = ((p shr 16) and 0xFF) * inv255 * 2f - 1f
+            out[planeSize + i] = ((p shr 8) and 0xFF) * inv255 * 2f - 1f
+            out[2 * planeSize + i] = (p and 0xFF) * inv255 * 2f - 1f
         }
         return out
     }
@@ -146,4 +119,8 @@ object OcrImageOps {
         }
         return OcrImage(width, height, pixels)
     }
+
+    /** `roundToInt` 在非有限值上会抛异常，这里做一次兜底，避免脏数据把识别打崩。 */
+    private fun Float.roundToIntSafe(): Int =
+        if (isNaN() || isInfinite()) 0 else this.roundToInt()
 }
