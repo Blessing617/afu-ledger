@@ -52,10 +52,16 @@ object PaymentPageRules {
         "已收款",
     )
 
-    /** 规则按顺序匹配，顺序即优先级。 */
+    /**
+     * 规则按顺序匹配，顺序即优先级。
+     *
+     * 账单详情页排在前面：真实的账单详情页里常带「支付成功」这个状态文案，
+     * 如果先按支付结果页匹配，就会因为裸金额（`-25.50`）不被接受而漏掉。
+     * 发布版不加载账单规则，所以这个顺序对发布版无影响。
+     */
     val rules: List<PageRule> = listOf(
-        PageRule(PaymentPageType.PAYMENT_RESULT, resultKeywords),
         PageRule(PaymentPageType.BILL_DETAIL, billKeywords, debugOnly = true),
+        PageRule(PaymentPageType.PAYMENT_RESULT, resultKeywords),
     )
 }
 
