@@ -122,10 +122,11 @@ fun AfuApp(container: AppContainer) {
                 navController = navController,
                 startDestination = "home",
                 modifier = Modifier.padding(innerPadding),
-                enterTransition = { fadeIn(tween(220)) },
-                exitTransition = { fadeOut(tween(180)) },
-                popEnterTransition = { fadeIn(tween(220)) },
-                popExitTransition = { fadeOut(tween(180)) },
+                // 标签切换用短淡入：220ms 在快速连点时会显得「拖」，120ms 更跟手
+                enterTransition = { fadeIn(tween(120)) },
+                exitTransition = { fadeOut(tween(90)) },
+                popEnterTransition = { fadeIn(tween(120)) },
+                popExitTransition = { fadeOut(tween(90)) },
             ) {
                 composable("home") {
                     HomeRoute(container = container, navController = navController)
