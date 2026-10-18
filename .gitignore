@@ -1,0 +1,30 @@
+# Gradle
+.gradle/
+build/
+local.properties
+
+# Android Studio
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 构建产物
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# 签名密钥（绝不提交）
+*.jks
+*.keystore
+keystore.properties
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 临时
+_tmp/
+*.log
