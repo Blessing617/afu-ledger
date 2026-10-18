@@ -49,6 +49,7 @@ class AutoRecognitionEngine(
         screenInteractive: Boolean,
         overlayShowing: Boolean,
         ocrAllowed: Boolean,
+        pageChanged: Boolean = false,
     ): EngineResult {
         val nodeSnapshot = collectNodeSnapshot(packageName)
 
@@ -69,6 +70,7 @@ class AutoRecognitionEngine(
                 kind = kind,
                 screenInteractive = screenInteractive,
                 overlayShowing = overlayShowing,
+                pageChanged = pageChanged,
             )
         ) {
             is OcrTextChannel.ReadResult.Success -> {

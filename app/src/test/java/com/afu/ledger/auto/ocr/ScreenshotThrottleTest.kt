@@ -34,6 +34,45 @@ class ScreenshotThrottleTest {
     }
 
     @Test
+    fun `页面 class 变化按切页间隔放行`() {
+        assertTrue(capture(ScreenshotThrottle.EventKind.CONTENT_CHANGED))
+
+        // 1.6 秒后：同样内容变化事件仍在 8 秒间隔内，应被拦
+        now += 1_600
+        assertFalse(capture(ScreenshotThrottle.EventKind.CONTENT_CHANGED))
+
+        // 但页面 class 变了（微信内部翻页）就按切页间隔（1.5s）走，应放行
+        now += 100
+        assertTrue(
+            throttle.shouldCapture(
+                kind = ScreenshotThrottle.EventKind.CONTENT_CHANGED,
+                screenInteractive = true,
+                overlayShowing = false,
+                pageChanged = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `页面 class 变化会重置退避`() {
+        repeat(5) {
+            capture(ScreenshotThrottle.EventKind.CONTENT_CHANGED)
+            throttle.recordResult(false)
+            now += 100_000
+        }
+        assertEquals(60_000L, throttle.currentIntervalMillis(ScreenshotThrottle.EventKind.CONTENT_CHANGED))
+
+        now += 100_000
+        throttle.shouldCapture(
+            kind = ScreenshotThrottle.EventKind.CONTENT_CHANGED,
+            screenInteractive = true,
+            overlayShowing = false,
+            pageChanged = true,
+        )
+        assertEquals(8_000L, throttle.currentIntervalMillis(ScreenshotThrottle.EventKind.CONTENT_CHANGED))
+    }
+
+    @Test
     fun `连续未命中会把间隔放大`() {
         repeat(3) {
             assertTrue(capture(ScreenshotThrottle.EventKind.CONTENT_CHANGED))
