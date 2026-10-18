@@ -64,6 +64,12 @@ class PaymentConfirmController(
         overlay.hide()
     }
 
+    /** 服务销毁时真正移除预热窗口，避免窗口泄漏。 */
+    fun release() {
+        timeoutJob?.cancel()
+        overlay.release()
+    }
+
     private suspend fun showConfirm(draft: PaymentDraft, hitAt: Long) {
         val accounts = container.accountRepository.observeActive().first()
         if (accounts.isEmpty()) {

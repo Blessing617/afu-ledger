@@ -71,6 +71,23 @@ class SettingsViewModel(
         viewModelScope.launch { themePreferences.setBackgroundUri(uri) }
     }
 
+    fun setBackgroundVisibility(value: Float) {
+        viewModelScope.launch { themePreferences.setBackgroundVisibility(value) }
+    }
+
+    fun setBackgroundBlur(enabled: Boolean) {
+        viewModelScope.launch { themePreferences.setBackgroundBlur(enabled) }
+    }
+
+    fun setBackgroundScrim(enabled: Boolean) {
+        viewModelScope.launch { themePreferences.setBackgroundScrim(enabled) }
+    }
+
+    /** 恢复默认背景：连显示参数一起重置。 */
+    fun resetBackground() {
+        viewModelScope.launch { themePreferences.resetBackground() }
+    }
+
     fun setAutoEnabled(enabled: Boolean) {
         viewModelScope.launch { autoLedgerSettings.setEnabled(enabled) }
     }

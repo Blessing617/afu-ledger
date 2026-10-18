@@ -88,6 +88,8 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
 
         // 系统可能重复绑定；复用实例，别把还活着的悬浮窗引用丢了
         val activeOverlay = overlay ?: PaymentConfirmOverlay(this).also { overlay = it }
+        // 预热组合环境：把首次弹出的 Compose 初始化开销挪到服务连接时
+        activeOverlay.warmUp()
         val activeLogger = AutoLedgerLogger(
             recognitionLog = app.container.recognitionLog,
             enabledProvider = { settings.recognitionLogEnabled },
@@ -160,7 +162,7 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         pendingJob?.cancel()
-        confirmController?.hide()
+        confirmController?.release()
         runCatching { ocrEngine?.close() }
         scope.cancel()
         super.onDestroy()

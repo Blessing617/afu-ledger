@@ -3,8 +3,10 @@ package com.afu.ledger.data.prefs
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -30,6 +32,9 @@ class ThemePreferences(
                     ?.let { raw -> runCatching { DarkModeSetting.valueOf(raw) }.getOrNull() }
                     ?: DarkModeSetting.SYSTEM,
                 backgroundUri = prefs[KEY_BACKGROUND_URI],
+                backgroundVisibility = prefs[KEY_BG_VISIBILITY] ?: ThemeSettings.DEFAULT_VISIBILITY,
+                backgroundBlur = prefs[KEY_BG_BLUR] ?: false,
+                backgroundScrim = prefs[KEY_BG_SCRIM] ?: true,
             )
         }
 
@@ -47,9 +52,34 @@ class ThemePreferences(
         }
     }
 
+    suspend fun setBackgroundVisibility(value: Float) {
+        context.themeDataStore.edit { it[KEY_BG_VISIBILITY] = value.coerceIn(0f, 1f) }
+    }
+
+    suspend fun setBackgroundBlur(enabled: Boolean) {
+        context.themeDataStore.edit { it[KEY_BG_BLUR] = enabled }
+    }
+
+    suspend fun setBackgroundScrim(enabled: Boolean) {
+        context.themeDataStore.edit { it[KEY_BG_SCRIM] = enabled }
+    }
+
+    /** 恢复默认：连背景显示参数一起重置。 */
+    suspend fun resetBackground() {
+        context.themeDataStore.edit { prefs ->
+            prefs.remove(KEY_BACKGROUND_URI)
+            prefs.remove(KEY_BG_VISIBILITY)
+            prefs.remove(KEY_BG_BLUR)
+            prefs.remove(KEY_BG_SCRIM)
+        }
+    }
+
     private companion object {
         val KEY_THEME_COLOR = stringPreferencesKey("theme_color_id")
         val KEY_DARK_MODE = stringPreferencesKey("dark_mode")
         val KEY_BACKGROUND_URI = stringPreferencesKey("background_uri")
+        val KEY_BG_VISIBILITY = floatPreferencesKey("background_visibility")
+        val KEY_BG_BLUR = booleanPreferencesKey("background_blur")
+        val KEY_BG_SCRIM = booleanPreferencesKey("background_scrim")
     }
 }

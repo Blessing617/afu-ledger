@@ -28,6 +28,8 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,6 +47,7 @@ import com.afu.ledger.domain.model.Account
 import com.afu.ledger.domain.model.Category
 import com.afu.ledger.ui.theme.Spacing
 import com.afu.ledger.ui.theme.ThemeColorPresets
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -60,6 +63,9 @@ fun SettingsScreen(
     onDarkModeChange: (DarkModeSetting) -> Unit,
     onBackgroundPick: (String) -> Unit,
     onBackgroundReset: () -> Unit,
+    onBackgroundVisibilityChange: (Float) -> Unit,
+    onBackgroundBlurChange: (Boolean) -> Unit,
+    onBackgroundScrimChange: (Boolean) -> Unit,
     onManageCategories: () -> Unit,
     onAutoEnabledChange: (Boolean) -> Unit,
     onDefaultAccountChange: (Long?) -> Unit,
@@ -154,6 +160,42 @@ fun SettingsScreen(
                 ) { Text("从相册选择") }
                 if (settings.backgroundUri != null) {
                     TextButton(onClick = onBackgroundReset) { Text("恢复默认") }
+                }
+            }
+
+            if (settings.backgroundUri != null) {
+                Spacer(Modifier.height(Spacing.sm))
+                Text(
+                    text = "可见度 ${(settings.backgroundVisibility * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Slider(
+                    value = settings.backgroundVisibility,
+                    onValueChange = onBackgroundVisibilityChange,
+                    valueRange = 0f..1f,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("模糊背景", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = settings.backgroundBlur,
+                        onCheckedChange = onBackgroundBlurChange,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("暗色遮罩", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = settings.backgroundScrim,
+                        onCheckedChange = onBackgroundScrimChange,
+                    )
                 }
             }
         }
