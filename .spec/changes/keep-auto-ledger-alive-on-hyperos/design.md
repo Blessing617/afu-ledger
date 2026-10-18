@@ -112,3 +112,20 @@ Manifest 需要的声明：
 | 常驻通知打扰 | `IMPORTANCE_LOW` + 无声 + 不可展开 |
 | 用户关闭通知导致保活失效 | 设置页显式提示，不静默降级 |
 | 预热窗口与前台服务叠加导致内存增长 | 测量 PSS，超过阈值则退回「不预热」 |
+
+## 四、实施记录
+
+已实现（代码位置）：
+
+- `auto/keepalive/AutoLedgerKeepAlive.kt`：通知渠道（IMPORTANCE_LOW）、常驻通知、
+  `lastEventAt` 心跳记录、`isSuspectFrozen()` 判定（阈值 30 分钟）
+- `AutoLedgerAccessibilityService`：`onServiceConnected` 启动前台服务（API 34+ 用
+  `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`）、`onAccessibilityEvent` 刷新心跳、
+  `onDestroy` 停止前台服务
+- `AndroidManifest.xml`：`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_SPECIAL_USE`、
+  `POST_NOTIFICATIONS`；service 声明 `foregroundServiceType="specialUse"` 与用途 `<property>`
+- `MainActivity`：Android 13+ 运行时请求通知权限（拒绝不影响功能）
+- `AutoLedgerSection`：每 5 秒刷新「后台保护已开启 / 疑似被系统冻结」状态，
+  疑似冻结时给出「去重新开启无障碍服务」入口
+
+实测：`keepAlive foreground=true`（startForeground 成功），进程状态在熄屏前为 TOP(2)。

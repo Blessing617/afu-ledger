@@ -16,12 +16,18 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.afu.ledger.auto.AutoLedgerSettings
 import com.afu.ledger.auto.OcrStatus
 import com.afu.ledger.auto.RecognitionEntry
+import com.afu.ledger.auto.keepalive.AutoLedgerKeepAlive
 import com.afu.ledger.domain.model.Account
 import com.afu.ledger.domain.model.Category
 import com.afu.ledger.domain.model.Money
@@ -30,6 +36,7 @@ import com.afu.ledger.util.MoneyFormatter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 /** 设置页的自动记账区块：开关、默认值、授权引导与识别日志。 */
 @OptIn(ExperimentalLayoutApi::class)
@@ -76,6 +83,24 @@ fun AutoLedgerSection(
                 MaterialTheme.colorScheme.error
             },
         )
+
+        if (serviceEnabled) {
+            val keepAlive = rememberKeepAliveState()
+            Text(
+                text = keepAlive.text,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (keepAlive.healthy) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            )
+            if (!keepAlive.healthy) {
+                TextButton(onClick = { context.startActivity(accessibilitySettingsIntent()) }) {
+                    Text("去重新开启无障碍服务")
+                }
+            }
+        }
 
         if (!serviceEnabled) {
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
@@ -219,6 +244,34 @@ fun AutoLedgerSection(
 }
 
 private const val RecognitionLogLineLimit = 8
+
+private data class KeepAliveUiState(val text: String, val healthy: Boolean)
+
+/** 每 5 秒刷新一次后台可靠性状态，避免把「冻结」显示成「正常」。 */
+@Composable
+private fun rememberKeepAliveState(): KeepAliveUiState {
+    var state by remember { mutableStateOf(computeKeepAliveState()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            state = computeKeepAliveState()
+            delay(5_000)
+        }
+    }
+    return state
+}
+
+private fun computeKeepAliveState(): KeepAliveUiState {
+    if (!AutoLedgerKeepAlive.foregroundRunning) {
+        return KeepAliveUiState("后台保护未开启 · 通知权限被关闭时会出现，会显著降低可靠性", false)
+    }
+    val since = AutoLedgerKeepAlive.sinceLastEventMs()
+    return when {
+        since < 0L -> KeepAliveUiState("后台保护已开启 · 本次启动后还没有收到页面事件", true)
+        since > AutoLedgerKeepAlive.SUSPECT_FROZEN_AFTER_MS ->
+            KeepAliveUiState("疑似被系统冻结 · 最近事件在 ${since / 60_000} 分钟前，建议重新开启一次无障碍", false)
+        else -> KeepAliveUiState("后台保护已开启 · 最近事件在 ${since / 1_000} 秒前", true)
+    }
+}
 
 private val logTimeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 

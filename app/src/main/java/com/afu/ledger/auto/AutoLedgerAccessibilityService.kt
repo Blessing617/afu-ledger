@@ -3,6 +3,7 @@ package com.afu.ledger.auto
 import android.accessibilityservice.AccessibilityService
 import android.app.KeyguardManager
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -12,6 +13,7 @@ import android.view.accessibility.AccessibilityEvent
 import com.afu.ledger.AfuApplication
 import com.afu.ledger.BuildConfig
 import com.afu.ledger.MainActivity
+import com.afu.ledger.auto.keepalive.AutoLedgerKeepAlive
 import com.afu.ledger.auto.ocr.OcrModelInstaller
 import com.afu.ledger.auto.ocr.OcrTextChannel
 import com.afu.ledger.auto.ocr.PpOcrEngine
@@ -118,11 +120,34 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         scope.launch {
             app.container.themePreferences.settings.collect { themeSettings = it }
         }
+
+        // HyperOS 会冻结长期后台的进程；前台服务把进程优先级抬出 cached 区间
+        startKeepAlive()
+    }
+
+    private fun startKeepAlive() {
+        AutoLedgerKeepAlive.ensureChannel(this)
+        val notification = AutoLedgerKeepAlive.buildNotification(this)
+        val result = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    AutoLedgerKeepAlive.NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                )
+            } else {
+                startForeground(AutoLedgerKeepAlive.NOTIFICATION_ID, notification)
+            }
+        }.onFailure { Log.e(TAG, "startForeground 失败: ${it.message}", it) }
+        AutoLedgerKeepAlive.markForegroundRunning(result.isSuccess)
+        Log.d(TAG, "keepAlive foreground=${result.isSuccess}")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val packageName = event.packageName?.toString() ?: return
+        // 心跳：任何事件都刷新「最近活跃时间」，用于让冻结可被发现
+        AutoLedgerKeepAlive.onAccessibilityEvent()
         debugLog("event pkg=$packageName enabled=${settings.enabled} type=${event.eventType}")
         if (!settings.enabled) return
         if (!isSupportedPackage(packageName)) return
@@ -163,6 +188,8 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         pendingJob?.cancel()
         confirmController?.release()
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+        AutoLedgerKeepAlive.markForegroundRunning(false)
         runCatching { ocrEngine?.close() }
         scope.cancel()
         super.onDestroy()
