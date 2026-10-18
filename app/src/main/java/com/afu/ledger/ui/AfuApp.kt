@@ -281,6 +281,7 @@ private fun SettingsRoute(container: AppContainer, navController: NavHostControl
         onBackgroundVisibilityChange = viewModel::setBackgroundVisibility,
         onBackgroundBlurChange = viewModel::setBackgroundBlur,
         onBackgroundScrimChange = viewModel::setBackgroundScrim,
+        onCardOpacityChange = viewModel::setCardOpacity,
         onManageCategories = { navController.navigate("categories") },
         onAutoEnabledChange = viewModel::setAutoEnabled,
         onDefaultAccountChange = viewModel::setDefaultAccount,

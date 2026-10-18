@@ -35,6 +35,7 @@ class ThemePreferences(
                 backgroundVisibility = prefs[KEY_BG_VISIBILITY] ?: ThemeSettings.DEFAULT_VISIBILITY,
                 backgroundBlur = prefs[KEY_BG_BLUR] ?: false,
                 backgroundScrim = prefs[KEY_BG_SCRIM] ?: true,
+                cardOpacity = prefs[KEY_CARD_OPACITY] ?: ThemeSettings.DEFAULT_CARD_OPACITY,
             )
         }
 
@@ -64,6 +65,12 @@ class ThemePreferences(
         context.themeDataStore.edit { it[KEY_BG_SCRIM] = enabled }
     }
 
+    suspend fun setCardOpacity(value: Float) {
+        context.themeDataStore.edit {
+            it[KEY_CARD_OPACITY] = value.coerceIn(ThemeSettings.MIN_CARD_OPACITY, 1f)
+        }
+    }
+
     /** 恢复默认：连背景显示参数一起重置。 */
     suspend fun resetBackground() {
         context.themeDataStore.edit { prefs ->
@@ -81,5 +88,6 @@ class ThemePreferences(
         val KEY_BG_VISIBILITY = floatPreferencesKey("background_visibility")
         val KEY_BG_BLUR = booleanPreferencesKey("background_blur")
         val KEY_BG_SCRIM = booleanPreferencesKey("background_scrim")
+        val KEY_CARD_OPACITY = floatPreferencesKey("card_opacity")
     }
 }

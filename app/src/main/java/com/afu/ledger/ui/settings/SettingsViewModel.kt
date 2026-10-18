@@ -83,6 +83,10 @@ class SettingsViewModel(
         viewModelScope.launch { themePreferences.setBackgroundScrim(enabled) }
     }
 
+    fun setCardOpacity(value: Float) {
+        viewModelScope.launch { themePreferences.setCardOpacity(value) }
+    }
+
     /** 恢复默认背景：连显示参数一起重置。 */
     fun resetBackground() {
         viewModelScope.launch { themePreferences.resetBackground() }
