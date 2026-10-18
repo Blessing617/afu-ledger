@@ -130,18 +130,18 @@ fun AfuApp(container: AppContainer) {
                 startDestination = "home",
                 modifier = Modifier.padding(innerPadding),
                 // 标签切换按顺序横向滑动：切到右边的 tab 从右滑入，切回左边则反向。
-                // 有方向感比纯淡入更「跟手」，也符合左右排列的心理模型。
+                // 位移只用半屏、时长压到 180ms：全屏位移会让两页同时重绘，掉帧更明显。
                 enterTransition = {
                     val forward = tabIndex(targetState.destination.route) >=
                         tabIndex(initialState.destination.route)
-                    slideInHorizontally(tween(220)) { full -> if (forward) full else -full } +
-                        fadeIn(tween(160))
+                    slideInHorizontally(tween(180)) { full -> (if (forward) full else -full) / 2 } +
+                        fadeIn(tween(140))
                 },
                 exitTransition = {
                     val forward = tabIndex(targetState.destination.route) >=
                         tabIndex(initialState.destination.route)
-                    slideOutHorizontally(tween(220)) { full -> if (forward) -full else full } +
-                        fadeOut(tween(160))
+                    slideOutHorizontally(tween(180)) { full -> (if (forward) -full else full) / 2 } +
+                        fadeOut(tween(140))
                 },
                 popEnterTransition = { fadeIn(tween(120)) },
                 popExitTransition = { fadeOut(tween(90)) },
