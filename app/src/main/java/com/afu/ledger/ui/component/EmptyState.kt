@@ -1,9 +1,12 @@
 package com.afu.ledger.ui.component
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.SentimentSatisfiedAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -13,10 +16,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.SentimentSatisfiedAlt
+import com.afu.ledger.ui.theme.CardShape
 
-/** 空状态：图标 + 标题 + 说明 + 可选操作。 */
+/**
+ * 空状态：图标 + 标题 + 说明 + 可选操作。
+ *
+ * 内容放在不透明卡片上：背景图可见度调到最高时，裸文字会糊在背景里看不清。
+ */
 @Composable
 fun EmptyState(
     title: String,
@@ -26,7 +32,11 @@ fun EmptyState(
     action: (@Composable () -> Unit)? = null,
 ) {
     Column(
-        modifier = modifier.fillMaxWidth().padding(32.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp)
+            .background(MaterialTheme.colorScheme.surface, CardShape)
+            .padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
