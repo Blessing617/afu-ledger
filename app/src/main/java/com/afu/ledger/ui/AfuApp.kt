@@ -44,6 +44,8 @@ import com.afu.ledger.domain.model.AccountWithBalance
 import com.afu.ledger.ui.assets.AccountEditorDialog
 import com.afu.ledger.ui.assets.AssetsScreen
 import com.afu.ledger.ui.assets.AssetsViewModel
+import com.afu.ledger.ui.category.CategoryScreen
+import com.afu.ledger.ui.category.CategoryViewModel
 import com.afu.ledger.ui.home.HomeScreen
 import com.afu.ledger.ui.home.HomeViewModel
 import com.afu.ledger.ui.record.RecordScreen
@@ -145,7 +147,7 @@ fun AfuApp(container: AppContainer) {
                     )
                 }
                 composable("categories") {
-                    PlaceholderScreen(title = "分类管理", hint = "即将上线")
+                    CategoryRoute(container = container, onBack = { navController.popBackStack() })
                 }
             }
         }
@@ -278,6 +280,25 @@ private fun RecordRoute(
         onDateChange = viewModel::setOccurredAt,
         onSave = viewModel::save,
         onDelete = viewModel::delete,
+        onBack = onBack,
+    )
+}
+
+@Composable
+private fun CategoryRoute(container: AppContainer, onBack: () -> Unit) {
+    val viewModel: CategoryViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer { CategoryViewModel(container.categoryRepository) }
+        },
+    )
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    CategoryScreen(
+        uiState = uiState,
+        onCreate = viewModel::create,
+        onRename = viewModel::rename,
+        onDelete = viewModel::delete,
+        onMessageConsumed = viewModel::consumeMessage,
         onBack = onBack,
     )
 }

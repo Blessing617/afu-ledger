@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.DatePicker
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -73,6 +74,7 @@ fun RecordScreen(
     onBack: () -> Unit,
 ) {
     var showDatePicker by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.finished) {
         if (uiState.finished) onBack()
@@ -90,7 +92,7 @@ fun RecordScreen(
                 },
                 actions = {
                     if (uiState.isEditing) {
-                        IconButton(onClick = onDelete) {
+                        IconButton(onClick = { showDeleteConfirm = true }) {
                             Icon(Icons.Outlined.DeleteOutline, contentDescription = "删除")
                         }
                     }
@@ -211,6 +213,25 @@ fun RecordScreen(
 
             Spacer(Modifier.height(Spacing.xxl))
         }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("删除这笔记录？") },
+            text = { Text("删除后账户余额会同步回退，且无法恢复。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            },
+        )
     }
 
     if (showDatePicker) {
