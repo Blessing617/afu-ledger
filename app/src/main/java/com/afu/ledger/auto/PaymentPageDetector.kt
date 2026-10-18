@@ -79,10 +79,15 @@ class PaymentPageDetector(
      * 属于应当识别的账单页。
      */
     private fun classifyPage(pageText: String): PaymentPageType? {
-        // 强特征：账单详情优先判定。
+        // 强特征：账单详情优先判定（仅 debug）。
         //
         // 真实账单详情页里常带「支付成功」这个状态文案，如果先按支付结果页匹配，
         // 就会因为裸金额（`-25.50`）不被接受而漏掉。
+        //
+        // **故意只在 debug 生效**：账单详情 / 余额明细是**历史记录**，
+        // 用户刚才付款那一刻已经记过一笔了。在账单页再弹一次确认卡片，
+        // 等于引导他重复入账 —— 而历史账单的去重（时间、金额都可能不同）拦不住。
+        // 所以发布版只认「支付结果页」这个真正的支付时点。
         if (allowDebugRules && PaymentPageRules.billKeywords.any { pageText.contains(it) }) {
             return PaymentPageType.BILL_DETAIL
         }
