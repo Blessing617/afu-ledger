@@ -10,9 +10,9 @@ import android.view.accessibility.AccessibilityNodeInfo
  */
 object NodeTextCollector {
 
-    private const val MAX_NODES = 800
-    private const val MAX_DEPTH = 16
-    private const val MAX_TEXT_LENGTH = 4_000
+    private const val MAX_NODES = 1_500
+    private const val MAX_DEPTH = 24
+    private const val MAX_TEXT_LENGTH = 6_000
 
     fun collect(root: AccessibilityNodeInfo?): List<String> {
         if (root == null) return emptyList()
