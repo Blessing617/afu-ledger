@@ -3,6 +3,7 @@ package com.afu.ledger.ui
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -129,21 +130,18 @@ fun AfuApp(container: AppContainer) {
                 navController = navController,
                 startDestination = "home",
                 modifier = Modifier.padding(innerPadding),
-                // 标签切换按顺序横向滑动：切到右边的 tab 从右滑入，切回左边则反向。
-                // 位移只用半屏、时长压到 180ms：全屏位移会让两页同时重绘，掉帧更明显。
+                // 标签之间是「不相关页面」→ 按 Material Motion 的 Fade through：
+                // 旧页 90ms 淡出，新页 210ms 淡入并从 0.92 缩放到 1。
+                // 位移只保留 4% 屏宽的方向暗示，避免整屏平推的廉价感。
                 enterTransition = {
                     val forward = tabIndex(targetState.destination.route) >=
                         tabIndex(initialState.destination.route)
-                    slideInHorizontally(tween(180)) { full -> (if (forward) full else -full) / 2 } +
-                        fadeIn(tween(140))
+                    fadeIn(tween(210)) +
+                        scaleIn(tween(210), initialScale = 0.92f) +
+                        slideInHorizontally(tween(210)) { full -> (if (forward) full else -full) / 24 }
                 },
-                exitTransition = {
-                    val forward = tabIndex(targetState.destination.route) >=
-                        tabIndex(initialState.destination.route)
-                    slideOutHorizontally(tween(180)) { full -> (if (forward) -full else full) / 2 } +
-                        fadeOut(tween(140))
-                },
-                popEnterTransition = { fadeIn(tween(120)) },
+                exitTransition = { fadeOut(tween(90)) },
+                popEnterTransition = { fadeIn(tween(210)) + scaleIn(tween(210), initialScale = 0.92f) },
                 popExitTransition = { fadeOut(tween(90)) },
             ) {
                 composable("home") {
@@ -163,8 +161,16 @@ fun AfuApp(container: AppContainer) {
                             defaultValue = -1L
                         },
                     ),
-                    enterTransition = { slideInVertically(tween(260)) { it } + fadeIn(tween(160)) },
-                    exitTransition = { slideOutVertically(tween(220)) { it } + fadeOut(tween(160)) },
+                    // 进入二级页面 → Material Motion 的 Shared axis Y：
+                    // 下方 1/3 滑入 + 淡入 300ms；返回时反向，底层页面只做淡入淡出
+                    enterTransition = {
+                        slideInVertically(tween(300)) { full -> full / 3 } + fadeIn(tween(300))
+                    },
+                    exitTransition = { fadeOut(tween(90)) },
+                    popEnterTransition = { fadeIn(tween(210)) },
+                    popExitTransition = {
+                        slideOutVertically(tween(300)) { full -> full / 3 } + fadeOut(tween(240))
+                    },
                 ) { entry ->
                     val id = entry.arguments?.getLong("transactionId") ?: -1L
                     RecordRoute(
@@ -175,8 +181,14 @@ fun AfuApp(container: AppContainer) {
                 }
                 composable(
                     route = "categories",
-                    enterTransition = { slideInVertically(tween(260)) { it } + fadeIn(tween(160)) },
-                    exitTransition = { slideOutVertically(tween(220)) { it } + fadeOut(tween(160)) },
+                    enterTransition = {
+                        slideInVertically(tween(300)) { full -> full / 3 } + fadeIn(tween(300))
+                    },
+                    exitTransition = { fadeOut(tween(90)) },
+                    popEnterTransition = { fadeIn(tween(210)) },
+                    popExitTransition = {
+                        slideOutVertically(tween(300)) { full -> full / 3 } + fadeOut(tween(240))
+                    },
                 ) {
                     CategoryRoute(container = container, onBack = { navController.popBackStack() })
                 }
