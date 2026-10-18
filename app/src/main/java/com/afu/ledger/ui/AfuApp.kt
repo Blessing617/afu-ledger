@@ -1,6 +1,7 @@
 package com.afu.ledger.ui
 
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -27,11 +28,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -80,8 +86,10 @@ private fun tabIndex(route: String?): Int {
 fun AfuApp(container: AppContainer) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route
-    val showBottomBar = bottomTabs.any { it.route == currentRoute }
+    val overlayRoute = backStackEntry?.destination?.route
+    val isOverlay = overlayRoute != null && overlayRoute != TAB_HOST
+
+    var currentTab by rememberSaveable { mutableStateOf(bottomTabs.first().route) }
 
     val themeSettings by container.themePreferences.settings
         .collectAsStateWithLifecycle(initialValue = ThemeSettings())
@@ -104,7 +112,7 @@ fun AfuApp(container: AppContainer) {
                 Color.Transparent
             },
             bottomBar = {
-                if (showBottomBar) {
+                if (!isOverlay) {
                     NavigationBar(
                         containerColor = if (themeSettings.backgroundUri == null) {
                             MaterialTheme.colorScheme.surface
@@ -113,11 +121,9 @@ fun AfuApp(container: AppContainer) {
                         },
                     ) {
                         bottomTabs.forEach { tab ->
-                            val selected = backStackEntry?.destination?.hierarchy
-                                ?.any { it.route == tab.route } == true
                             NavigationBarItem(
-                                selected = selected,
-                                onClick = { navController.navigateToTab(tab.route) },
+                                selected = tab.route == currentTab,
+                                onClick = { currentTab = tab.route },
                                 icon = { Icon(tab.icon, contentDescription = null) },
                                 label = { Text(tab.label) },
                             )
@@ -126,61 +132,31 @@ fun AfuApp(container: AppContainer) {
                 }
             },
         ) { innerPadding ->
-            NavHost(
-                navController = navController,
-                startDestination = "home",
-                modifier = Modifier.padding(innerPadding),
-                // 标签之间是「不相关页面」→ 按 Material Motion 的 Fade through：
-                // 旧页 90ms 淡出，新页 210ms 淡入并从 0.92 缩放到 1。
-                // 位移只保留 4% 屏宽的方向暗示，避免整屏平推的廉价感。
-                enterTransition = {
-                    val forward = tabIndex(targetState.destination.route) >=
-                        tabIndex(initialState.destination.route)
-                    fadeIn(tween(210)) +
-                        scaleIn(tween(210), initialScale = 0.92f) +
-                        slideInHorizontally(tween(210)) { full -> (if (forward) full else -full) / 24 }
-                },
-                exitTransition = { fadeOut(tween(90)) },
-                popEnterTransition = { fadeIn(tween(210)) + scaleIn(tween(210), initialScale = 0.92f) },
-                popExitTransition = { fadeOut(tween(90)) },
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
             ) {
-                composable("home") {
-                    HomeRoute(container = container, navController = navController)
-                }
-                composable("assets") {
-                    AssetsRoute(container = container)
-                }
-                composable("settings") {
-                    SettingsRoute(container = container, navController = navController)
-                }
-                composable(
-                    route = "record?transactionId={transactionId}",
-                    arguments = listOf(
-                        navArgument("transactionId") {
-                            type = NavType.LongType
-                            defaultValue = -1L
-                        },
-                    ),
-                    // 进入二级页面 → Material Motion 的 Shared axis Y：
-                    // 下方 1/3 滑入 + 淡入 300ms；返回时反向，底层页面只做淡入淡出
-                    enterTransition = {
-                        slideInVertically(tween(300)) { full -> full / 3 } + fadeIn(tween(300))
-                    },
-                    exitTransition = { fadeOut(tween(90)) },
-                    popEnterTransition = { fadeIn(tween(210)) },
-                    popExitTransition = {
-                        slideOutVertically(tween(300)) { full -> full / 3 } + fadeOut(tween(240))
-                    },
-                ) { entry ->
-                    val id = entry.arguments?.getLong("transactionId") ?: -1L
-                    RecordRoute(
+                // 三个标签页常驻组合：切换时只动 alpha，不重建页面。
+                // 这是「点设置就卡一下」的根治手段——设置页的 UI 树最重。
+                TabPage(route = "home", current = currentTab) {
+                    HomeRoute(
                         container = container,
-                        editingTransactionId = if (id > 0L) id else null,
-                        onBack = { navController.popBackStack() },
+                        navController = navController,
+                        onNavigateToAssets = { currentTab = "assets" },
                     )
                 }
-                composable(
-                    route = "categories",
+                TabPage(route = "assets", current = currentTab) {
+                    AssetsRoute(container = container)
+                }
+                TabPage(route = "settings", current = currentTab) {
+                    SettingsRoute(container = container, navController = navController)
+                }
+
+                // 二级页面：仍由 NavHost 管理，只负责「层级进入/返回」的转场
+                NavHost(
+                    navController = navController,
+                    startDestination = TAB_HOST,
                     enterTransition = {
                         slideInVertically(tween(300)) { full -> full / 3 } + fadeIn(tween(300))
                     },
@@ -190,15 +166,74 @@ fun AfuApp(container: AppContainer) {
                         slideOutVertically(tween(300)) { full -> full / 3 } + fadeOut(tween(240))
                     },
                 ) {
-                    CategoryRoute(container = container, onBack = { navController.popBackStack() })
+                    composable(TAB_HOST) { /* 占位：标签页在 NavHost 之外 */ }
+                    composable(
+                        route = "record?transactionId={transactionId}",
+                        arguments = listOf(
+                            navArgument("transactionId") {
+                                type = NavType.LongType
+                                defaultValue = -1L
+                            },
+                        ),
+                    ) { entry ->
+                        val id = entry.arguments?.getLong("transactionId") ?: -1L
+                        RecordRoute(
+                            container = container,
+                            editingTransactionId = if (id > 0L) id else null,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                    composable("categories") {
+                        CategoryRoute(container = container, onBack = { navController.popBackStack() })
+                    }
                 }
             }
         }
     }
 }
 
+/** 一个常驻组合的标签页：不可见时只把 alpha 归零，组合树保留。 */
 @Composable
-private fun HomeRoute(container: AppContainer, navController: NavHostController) {
+private fun TabPage(
+    route: String,
+    current: String,
+    content: @Composable () -> Unit,
+) {
+    val visible = route == current
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 160),
+        label = "tabAlpha",
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(if (visible) 1f else 0f)
+            .graphicsLayer { this.alpha = alpha }
+            .then(if (visible) Modifier else Modifier.pointerInput(Unit) { blockAllInput() }),
+    ) {
+        content()
+    }
+}
+
+/** 不可见页面吞掉所有触摸，避免事件穿透到下层页面。 */
+private suspend fun PointerInputScope.blockAllInput() {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent().changes.forEach { it.consume() }
+        }
+    }
+}
+
+private const val TAB_HOST = "tab-host"
+
+
+@Composable
+private fun HomeRoute(
+    container: AppContainer,
+    navController: NavHostController,
+    onNavigateToAssets: () -> Unit,
+) {
     val viewModel: HomeViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
@@ -215,7 +250,7 @@ private fun HomeRoute(container: AppContainer, navController: NavHostController)
     HomeScreen(
         uiState = uiState,
         onAddTransaction = { navController.navigate("record") },
-        onCreateAccount = { navController.navigate("assets") },
+        onCreateAccount = onNavigateToAssets,
         onTransactionClick = { id -> navController.navigate("record?transactionId=$id") },
     )
 }

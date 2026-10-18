@@ -16,12 +16,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.Image
@@ -98,13 +98,12 @@ fun SettingsScreen(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(Spacing.lg),
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
+        item {
         SectionCard(icon = Icons.Outlined.Palette, title = "主题色") {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.md),
@@ -138,7 +137,9 @@ fun SettingsScreen(
                 }
             }
         }
+        }
 
+        item {
         SectionCard(icon = Icons.Outlined.Palette, title = "深色模式") {
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 DarkModeSetting.entries.forEach { mode ->
@@ -150,7 +151,9 @@ fun SettingsScreen(
                 }
             }
         }
+        }
 
+        item {
         SectionCard(icon = Icons.Outlined.Image, title = "背景图") {
             Text(
                 text = if (settings.backgroundUri == null) "当前使用主题色渐变背景" else "已设置自定义背景图",
@@ -229,7 +232,9 @@ fun SettingsScreen(
                 )
             }
         }
+        }
 
+        item {
         SectionCard(icon = Icons.Outlined.Category, title = "分类管理") {
             Text(
                 text = "新增、重命名或删除收支分类",
@@ -238,12 +243,9 @@ fun SettingsScreen(
             )
             TextButton(onClick = onManageCategories) { Text("管理分类") }
         }
+        }
 
-        // 自动记账区块最重（多组 FlowRow + 日志列表）：
-        // 延迟到首帧之后再组合，避免每次切到设置页时卡一下
-        var heavyReady by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { heavyReady = true }
-        if (heavyReady) {
+        item {
             AutoLedgerSection(
                 settings = autoSettings,
                 serviceEnabled = serviceEnabled,
