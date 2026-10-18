@@ -52,6 +52,7 @@ import com.afu.ledger.ui.record.RecordScreen
 import com.afu.ledger.ui.record.RecordViewModel
 import com.afu.ledger.ui.settings.SettingsScreen
 import com.afu.ledger.ui.settings.SettingsViewModel
+import com.afu.ledger.ui.settings.rememberAutoLedgerServiceEnabled
 
 private data class BottomTab(val route: String, val label: String, val icon: ImageVector)
 
@@ -234,18 +235,41 @@ private fun AssetsRoute(container: AppContainer) {
 private fun SettingsRoute(container: AppContainer, navController: NavHostController) {
     val viewModel: SettingsViewModel = viewModel(
         factory = viewModelFactory {
-            initializer { SettingsViewModel(container.themePreferences) }
+            initializer {
+                SettingsViewModel(
+                    themePreferences = container.themePreferences,
+                    autoLedgerSettings = container.autoLedgerSettings,
+                    accountRepository = container.accountRepository,
+                    categoryRepository = container.categoryRepository,
+                    recognitionLog = container.recognitionLog,
+                )
+            }
         },
     )
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val autoSettings by viewModel.autoSettings.collectAsStateWithLifecycle()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val expenseCategories by viewModel.expenseCategories.collectAsStateWithLifecycle()
+    val logEntries by viewModel.logEntries.collectAsStateWithLifecycle()
+    val serviceEnabled = rememberAutoLedgerServiceEnabled()
 
     SettingsScreen(
         settings = settings,
+        autoSettings = autoSettings,
+        serviceEnabled = serviceEnabled,
+        accounts = accounts,
+        expenseCategories = expenseCategories,
+        logEntries = logEntries,
         onThemeColorChange = viewModel::setThemeColor,
         onDarkModeChange = viewModel::setDarkMode,
         onBackgroundPick = viewModel::setBackgroundUri,
         onBackgroundReset = { viewModel.setBackgroundUri(null) },
         onManageCategories = { navController.navigate("categories") },
+        onAutoEnabledChange = viewModel::setAutoEnabled,
+        onDefaultAccountChange = viewModel::setDefaultAccount,
+        onDefaultCategoryChange = viewModel::setDefaultCategory,
+        onRecognitionLogChange = viewModel::setRecognitionLogEnabled,
+        onClearLog = viewModel::clearLog,
     )
 }
 

@@ -15,6 +15,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          自动记账：只声明无障碍服务，不申请 INTERNET / SYSTEM_ALERT_WINDOW / READ_SMS。
+          BIND_ACCESSIBILITY_SERVICE 由系统在用户授权后绑定，不是运行时权限。
+        -->
+        <service
+            android:name=".auto.AutoLedgerAccessibilityService"
+            android:exported="true"
+            android:label="@string/auto_ledger_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/auto_ledger_service" />
+        </service>
     </application>
 
 </manifest>

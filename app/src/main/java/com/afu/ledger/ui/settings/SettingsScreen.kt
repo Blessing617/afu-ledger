@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -27,7 +27,6 @@ import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,12 +34,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.afu.ledger.auto.AutoLedgerSettings
+import com.afu.ledger.auto.RecognitionEntry
 import com.afu.ledger.data.prefs.DarkModeSetting
 import com.afu.ledger.data.prefs.ThemeSettings
-import com.afu.ledger.ui.component.AfuCard
+import com.afu.ledger.domain.model.Account
+import com.afu.ledger.domain.model.Category
 import com.afu.ledger.ui.theme.Spacing
 import com.afu.ledger.ui.theme.ThemeColorPresets
 
@@ -48,11 +49,21 @@ import com.afu.ledger.ui.theme.ThemeColorPresets
 @Composable
 fun SettingsScreen(
     settings: ThemeSettings,
+    autoSettings: AutoLedgerSettings,
+    serviceEnabled: Boolean,
+    accounts: List<Account>,
+    expenseCategories: List<Category>,
+    logEntries: List<RecognitionEntry>,
     onThemeColorChange: (String) -> Unit,
     onDarkModeChange: (DarkModeSetting) -> Unit,
     onBackgroundPick: (String) -> Unit,
     onBackgroundReset: () -> Unit,
     onManageCategories: () -> Unit,
+    onAutoEnabledChange: (Boolean) -> Unit,
+    onDefaultAccountChange: (Long?) -> Unit,
+    onDefaultCategoryChange: (Long?) -> Unit,
+    onRecognitionLogChange: (Boolean) -> Unit,
+    onClearLog: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -90,7 +101,8 @@ fun SettingsScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .width(40.dp)
+                                .height(40.dp)
                                 .clip(CircleShape)
                                 .background(preset.seed)
                                 .border(
@@ -99,7 +111,7 @@ fun SettingsScreen(
                                     shape = CircleShape,
                                 ),
                         )
-                        Spacer(Modifier.size(Spacing.xs))
+                        Spacer(modifier = Modifier.height(Spacing.xs))
                         Text(
                             text = preset.label,
                             style = MaterialTheme.typography.bodySmall,
@@ -151,23 +163,19 @@ fun SettingsScreen(
             )
             TextButton(onClick = onManageCategories) { Text("管理分类") }
         }
-    }
-}
 
-@Composable
-private fun SectionCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
-) {
-    AfuCard(modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(Spacing.sm))
-            Text(text = title, style = MaterialTheme.typography.titleMedium)
-        }
-        Spacer(Modifier.size(Spacing.md))
-        content()
+        AutoLedgerSection(
+            settings = autoSettings,
+            serviceEnabled = serviceEnabled,
+            accounts = accounts,
+            categories = expenseCategories,
+            logEntries = logEntries,
+            onEnabledChange = onAutoEnabledChange,
+            onDefaultAccountChange = onDefaultAccountChange,
+            onDefaultCategoryChange = onDefaultCategoryChange,
+            onRecognitionLogChange = onRecognitionLogChange,
+            onClearLog = onClearLog,
+        )
     }
 }
 
