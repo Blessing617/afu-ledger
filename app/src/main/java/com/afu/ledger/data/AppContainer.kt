@@ -1,6 +1,9 @@
 package com.afu.ledger.data
 
 import android.content.Context
+import com.afu.ledger.auto.AutoLedgerSettingsRepository
+import com.afu.ledger.auto.RecognitionLog
+import com.afu.ledger.auto.RecordDetectedPaymentUseCase
 import com.afu.ledger.data.local.AppDatabase
 import com.afu.ledger.data.prefs.ThemePreferences
 import com.afu.ledger.data.repository.AccountRepository
@@ -23,4 +26,16 @@ class AppContainer(context: Context) {
     val transactionRepository: TransactionRepository = TransactionRepository(database.transactionDao())
 
     val themePreferences: ThemePreferences = ThemePreferences(context.applicationContext)
+
+    val autoLedgerSettings: AutoLedgerSettingsRepository =
+        AutoLedgerSettingsRepository(context.applicationContext)
+
+    /** 识别日志只存在内存里，进程结束即清空。 */
+    val recognitionLog: RecognitionLog = RecognitionLog()
+
+    val recordDetectedPayment: RecordDetectedPaymentUseCase = RecordDetectedPaymentUseCase(
+        transactionRepository = transactionRepository,
+        accountRepository = accountRepository,
+        categoryRepository = categoryRepository,
+    )
 }

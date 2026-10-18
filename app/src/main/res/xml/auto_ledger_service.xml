@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自动记账无障碍服务配置。
+
+  注意：这里不限定 packageNames，而是在代码里按白名单过滤。
+  原因有二：
+  1) debug 构建要用自家包名下的模拟页面验证链路；
+  2) 部分 ROM 对 XML 包名过滤行为不一致，运行时过滤更可靠。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/auto_ledger_service_description"
+    android:notificationTimeout="400" />
