@@ -1,94 +1,104 @@
 package com.afu.ledger.ui.component
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AccountBalanceWallet
-import androidx.compose.material.icons.outlined.AttachMoney
-import androidx.compose.material.icons.outlined.BakeryDining
-import androidx.compose.material.icons.outlined.Cake
-import androidx.compose.material.icons.outlined.CardGiftcard
-import androidx.compose.material.icons.outlined.Celebration
-import androidx.compose.material.icons.outlined.CreditCard
-import androidx.compose.material.icons.outlined.CurrencyExchange
-import androidx.compose.material.icons.outlined.DirectionsBus
-import androidx.compose.material.icons.outlined.DirectionsCar
-import androidx.compose.material.icons.outlined.EmojiEvents
-import androidx.compose.material.icons.outlined.Fastfood
-import androidx.compose.material.icons.outlined.FitnessCenter
-import androidx.compose.material.icons.outlined.Flight
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Hotel
-import androidx.compose.material.icons.outlined.LocalCafe
-import androidx.compose.material.icons.outlined.LocalHospital
-import androidx.compose.material.icons.outlined.LocalLaundryService
-import androidx.compose.material.icons.outlined.MedicalServices
-import androidx.compose.material.icons.outlined.MenuBook
-import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Payments
-import androidx.compose.material.icons.outlined.Pets
-import androidx.compose.material.icons.outlined.PhoneIphone
-import androidx.compose.material.icons.outlined.Redeem
-import androidx.compose.material.icons.outlined.Restaurant
-import androidx.compose.material.icons.outlined.Savings
-import androidx.compose.material.icons.outlined.School
-import androidx.compose.material.icons.outlined.ShoppingBag
-import androidx.compose.material.icons.outlined.ShoppingCart
-import androidx.compose.material.icons.outlined.SportsBasketball
-import androidx.compose.material.icons.outlined.SportsEsports
-import androidx.compose.material.icons.outlined.Train
-import androidx.compose.material.icons.outlined.TrendingUp
-import androidx.compose.material.icons.outlined.Work
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
+import androidx.compose.material.icons.rounded.AttachMoney
+import androidx.compose.material.icons.rounded.BakeryDining
+import androidx.compose.material.icons.rounded.Cake
+import androidx.compose.material.icons.rounded.CardGiftcard
+import androidx.compose.material.icons.rounded.Celebration
+import androidx.compose.material.icons.rounded.CreditCard
+import androidx.compose.material.icons.rounded.CurrencyExchange
+import androidx.compose.material.icons.rounded.DirectionsBus
+import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.EmojiEvents
+import androidx.compose.material.icons.rounded.Fastfood
+import androidx.compose.material.icons.rounded.FitnessCenter
+import androidx.compose.material.icons.rounded.Flight
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Hotel
+import androidx.compose.material.icons.rounded.LocalCafe
+import androidx.compose.material.icons.rounded.LocalHospital
+import androidx.compose.material.icons.rounded.LocalLaundryService
+import androidx.compose.material.icons.rounded.MedicalServices
+import androidx.compose.material.icons.rounded.MenuBook
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.Payments
+import androidx.compose.material.icons.rounded.Pets
+import androidx.compose.material.icons.rounded.PhoneIphone
+import androidx.compose.material.icons.rounded.Redeem
+import androidx.compose.material.icons.rounded.Restaurant
+import androidx.compose.material.icons.rounded.Savings
+import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.ShoppingBag
+import androidx.compose.material.icons.rounded.ShoppingCart
+import androidx.compose.material.icons.rounded.SportsBasketball
+import androidx.compose.material.icons.rounded.SportsEsports
+import androidx.compose.material.icons.rounded.Train
+import androidx.compose.material.icons.rounded.TrendingUp
+import androidx.compose.material.icons.rounded.Work
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
  * 分类图标的完整集合。
  *
- * ## 为什么要「多」
+ * ## 为什么是 Rounded 变体
  *
- * 原先只有 12 个，覆盖不到「宠物 / 咖啡 / 健身 / 房租 / 通勤」这类高频支出，
- * 用户建完分类只能从「更多」里挑，最后全场都是省略号图标 —— 首页看起来像没做图标。
+ * 之前混用 Outlined：笔画细、端点方、转角硬，一屏里同时出现线性图标和实心图标时
+ * 像「三种不同的应用拼在一起」。Material Icons 的 Rounded 变体笔画圆头圆角，
+ * 与应用的圆润造型、大圆角卡片一致，且**不新增任何依赖**（`material-icons-extended`
+ * 已在依赖里），也不用引 SVG 转换工具链。
  *
  * 图标全部取自 Material Icons（已随 APK 打包，无网络依赖）。
  * 键名是持久化在数据库里的，**不要改名**，只能新增。
  */
 fun categoryIcon(iconKey: String): ImageVector = when (iconKey) {
-    "restaurant" -> Icons.Outlined.Restaurant
-    "fastfood" -> Icons.Outlined.Fastfood
-    "local_cafe" -> Icons.Outlined.LocalCafe
-    "bakery_dining" -> Icons.Outlined.BakeryDining
-    "cake" -> Icons.Outlined.Cake
-    "directions_bus" -> Icons.Outlined.DirectionsBus
-    "train" -> Icons.Outlined.Train
-    "directions_car" -> Icons.Outlined.DirectionsCar
-    "flight" -> Icons.Outlined.Flight
-    "shopping_bag" -> Icons.Outlined.ShoppingBag
-    "shopping_cart" -> Icons.Outlined.ShoppingCart
-    "home" -> Icons.Outlined.Home
-    "hotel" -> Icons.Outlined.Hotel
-    "local_laundry_service" -> Icons.Outlined.LocalLaundryService
-    "sports_esports" -> Icons.Outlined.SportsEsports
-    "movie" -> Icons.Outlined.Movie
-    "sports_basketball" -> Icons.Outlined.SportsBasketball
-    "fitness_center" -> Icons.Outlined.FitnessCenter
-    "medical_services" -> Icons.Outlined.MedicalServices
-    "local_hospital" -> Icons.Outlined.LocalHospital
-    "school" -> Icons.Outlined.School
-    "menu_book" -> Icons.Outlined.MenuBook
-    "redeem" -> Icons.Outlined.Redeem
-    "card_giftcard" -> Icons.Outlined.CardGiftcard
-    "celebration" -> Icons.Outlined.Celebration
-    "payments" -> Icons.Outlined.Payments
-    "attach_money" -> Icons.Outlined.AttachMoney
-    "currency_exchange" -> Icons.Outlined.CurrencyExchange
-    "work" -> Icons.Outlined.Work
-    "emoji_events" -> Icons.Outlined.EmojiEvents
-    "trending_up" -> Icons.Outlined.TrendingUp
-    "pets" -> Icons.Outlined.Pets
-    "phone_iphone" -> Icons.Outlined.PhoneIphone
-    "account_balance_wallet" -> Icons.Outlined.AccountBalanceWallet
-    "credit_card" -> Icons.Outlined.CreditCard
-    "savings" -> Icons.Outlined.Savings
-    else -> Icons.Outlined.MoreHoriz
+    "restaurant" -> Icons.Rounded.Restaurant
+    "fastfood" -> Icons.Rounded.Fastfood
+    "local_cafe" -> Icons.Rounded.LocalCafe
+    "bakery_dining" -> Icons.Rounded.BakeryDining
+    "cake" -> Icons.Rounded.Cake
+    "directions_bus" -> Icons.Rounded.DirectionsBus
+    "train" -> Icons.Rounded.Train
+    "directions_car" -> Icons.Rounded.DirectionsCar
+    "flight" -> Icons.Rounded.Flight
+    "shopping_bag" -> Icons.Rounded.ShoppingBag
+    "shopping_cart" -> Icons.Rounded.ShoppingCart
+    "home" -> Icons.Rounded.Home
+    "hotel" -> Icons.Rounded.Hotel
+    "local_laundry_service" -> Icons.Rounded.LocalLaundryService
+    "sports_esports" -> Icons.Rounded.SportsEsports
+    "movie" -> Icons.Rounded.Movie
+    "sports_basketball" -> Icons.Rounded.SportsBasketball
+    "fitness_center" -> Icons.Rounded.FitnessCenter
+    "medical_services" -> Icons.Rounded.MedicalServices
+    "local_hospital" -> Icons.Rounded.LocalHospital
+    "school" -> Icons.Rounded.School
+    "menu_book" -> Icons.Rounded.MenuBook
+    "redeem" -> Icons.Rounded.Redeem
+    "card_giftcard" -> Icons.Rounded.CardGiftcard
+    "celebration" -> Icons.Rounded.Celebration
+    "payments" -> Icons.Rounded.Payments
+    "attach_money" -> Icons.Rounded.AttachMoney
+    "currency_exchange" -> Icons.Rounded.CurrencyExchange
+    "work" -> Icons.Rounded.Work
+    "emoji_events" -> Icons.Rounded.EmojiEvents
+    "trending_up" -> Icons.Rounded.TrendingUp
+    "pets" -> Icons.Rounded.Pets
+    "phone_iphone" -> Icons.Rounded.PhoneIphone
+    "account_balance_wallet" -> Icons.Rounded.AccountBalanceWallet
+    "credit_card" -> Icons.Rounded.CreditCard
+    "savings" -> Icons.Rounded.Savings
+    else -> Icons.Rounded.MoreHoriz
+}
+
+/** 账户图标。与分类共用映射，未匹配时回退到钱包。 */
+fun accountIcon(iconKey: String): ImageVector = when (iconKey) {
+    "credit_card" -> Icons.Rounded.CreditCard
+    "savings" -> Icons.Rounded.Savings
+    "payments" -> Icons.Rounded.Payments
+    else -> Icons.Rounded.AccountBalanceWallet
 }
 
 /** 账户可选的图标 key。 */

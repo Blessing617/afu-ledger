@@ -223,18 +223,30 @@ class AutoRecognitionEngine(
     }
 
     private fun collectNodeSnapshot(packageName: String): PageSnapshot {
-        val texts = LinkedHashSet<String>()
-        service.rootInActiveWindow?.let { texts.addAll(NodeTextCollector.collect(it)) }
+        val seen = LinkedHashSet<String>()
+        val items = ArrayList<PageText>(128)
+
+        fun addAll(collected: List<PageText>) {
+            collected.forEach { item ->
+                // 同一段文本在多个窗口里重复出现时只留第一份，避免「支付时间」出现两次
+                if (seen.add("${item.top}|${item.left}|${item.text}")) items.add(item)
+            }
+        }
+
+        service.rootInActiveWindow?.let { addAll(NodeTextCollector.collectWithBounds(it)) }
 
         service.windows?.forEach { window ->
             // 别把自己的确认卡片也读进来，否则「自动记账」「账户」「分类」会污染解析
             if (window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) return@forEach
             val windowRoot = runCatching { window.root }.getOrNull() ?: return@forEach
             if (windowRoot.packageName?.toString() != packageName) return@forEach
-            texts.addAll(NodeTextCollector.collect(windowRoot))
+            addAll(NodeTextCollector.collectWithBounds(windowRoot))
         }
 
-        return PageSnapshot(packageName, texts.toList())
+        return PageSnapshot(
+            packageName = packageName,
+            items = items.sortedWith(compareBy({ it.top }, { it.left })),
+        )
     }
 
     private fun debugLog(message: String) {

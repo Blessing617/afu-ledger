@@ -10,10 +10,12 @@ import com.afu.ledger.MainActivity
 import com.afu.ledger.auto.overlay.NoAccountCard
 import com.afu.ledger.auto.overlay.PaymentConfirmContent
 import com.afu.ledger.auto.overlay.PaymentConfirmOverlay
+import com.afu.ledger.auto.keepalive.AutoLedgerKeepAlive
 import com.afu.ledger.data.AppContainer
 import com.afu.ledger.data.prefs.ThemeSettings
 import com.afu.ledger.domain.model.TransType
 import com.afu.ledger.ui.theme.AfuTheme
+import com.afu.ledger.util.DateFormatter
 import com.afu.ledger.util.MoneyFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -45,6 +47,16 @@ class PaymentConfirmController(
     /** 当前卡片对应的账单指纹；用于忽略 / 入账时写持久化记录。 */
     private var shownFingerprint: String? = null
 
+    /** 用户在这张卡片上把方向改成了什么；null 表示用识别结果。 */
+    private var directionOverride: TransType? = null
+
+    /** 当前卡片对应的草稿与命中时刻，供「切方向后重建卡片」使用。 */
+    private var currentDraft: PaymentDraft? = null
+    private var currentHitAt: Long = 0L
+
+    /** 卡片最近一次显示的时刻，用于「刚弹出时忽略换页信号」的冷却。 */
+    private var shownAtMillis: Long = 0L
+
     val isShowing: Boolean get() = overlay.isShowing
 
     fun handleHit(draft: PaymentDraft) {
@@ -71,7 +83,12 @@ class PaymentConfirmController(
                 return@launch
             }
 
-            // ③ 先记「刚弹过」（短有效期）：即使卡片被系统吞掉、用户没看见，
+            // ③ **先落待确认，再弹窗**。
+            //    部分系统对支付类应用禁止悬浮窗（钱迹/iCost 的 FAQ 都写了），
+            //    弹不出来就丢掉等于静默丢账。落了库之后，弹窗失败还能从通知与首页补确认。
+            container.pendingBills.add(PendingBillStore.fromDraft(draft))
+
+            // ④ 再记「刚弹过」（短有效期）：即使卡片被系统吞掉、用户没看见，
             //    十分钟内也不会被同一页面反复唤醒。
             processedBills.markShown(fingerprint)
             shownFingerprint = fingerprint
@@ -82,6 +99,9 @@ class PaymentConfirmController(
     fun hide() {
         timeoutJob?.cancel()
         shownFingerprint = null
+        // 方向改选只对当前这张卡片有效，收起就清掉，避免影响下一笔
+        directionOverride = null
+        currentDraft = null
         overlay.hide()
     }
 
@@ -104,9 +124,23 @@ class PaymentConfirmController(
         dismiss("已离开${PaymentPageRules.sourceLabel(packageName)}")
     }
 
-    /** 页面变了（换页）：卡片属于上一页，直接收起。 */
+    /**
+     * 页面变了（换页）：卡片属于上一页，直接收起。
+     *
+     * **但卡片刚弹出的一小段时间内必须忽略这个信号。**
+     * 真机实测：点进账单后，微信的 WebView 会在卡片出现之后 1–3 秒再补发一次
+     * `TYPE_VIEW_CLICKED`（页面加载收尾）。按「有点击就收起」处理，
+     * 卡片弹出来一秒多就被自己关掉，用户根本来不及点「记一笔」——
+     * 表现为「识别到了但卡片闪一下就没」。
+     */
     fun onPageChanged() {
-        if (overlay.isShowing) dismiss("页面已切换")
+        if (!overlay.isShowing) return
+        val shownFor = SystemClock.uptimeMillis() - shownAtMillis
+        if (shownFor < PAGE_CHANGE_GRACE_MILLIS) {
+            debugLog("ignore page change (shown for ${shownFor}ms)")
+            return
+        }
+        dismiss("页面已切换")
     }
 
     /** 收起卡片。不属于用户的明确决定，所以不写长有效期。 */
@@ -122,17 +156,27 @@ class PaymentConfirmController(
     }
 
     private suspend fun showConfirm(draft: PaymentDraft, hitAt: Long) {
+        currentDraft = draft
+        currentHitAt = hitAt
+        val direction = directionOverride ?: draft.direction
+
         val accounts = container.accountRepository.observeActive().first()
         if (accounts.isEmpty()) {
             showNoAccount(draft, hitAt)
             return
         }
 
+        // 分类必须跟着方向走：收入账单给支出分类，会让账本统计彻底错位
         val categories = container.categoryRepository.observeAll()
             .first()
-            .filter { it.type == TransType.EXPENSE }
+            .filter { it.type == direction }
         if (categories.isEmpty()) {
-            logger.log(draft.sourcePackage, "没有可用的支出分类", draft.amount.cents, draft.merchant)
+            logger.log(
+                draft.sourcePackage,
+                if (direction == TransType.INCOME) "没有可用的收入分类" else "没有可用的支出分类",
+                draft.amount.cents,
+                draft.merchant,
+            )
             return
         }
 
@@ -140,25 +184,32 @@ class PaymentConfirmController(
         val accountId = settings.defaultAccountId
             ?.takeIf { id -> accounts.any { it.id == id } }
             ?: accounts.first().id
+        // 分类预选顺序：用户设置的默认分类 → 页面分类映射（支付宝「餐饮美食」→「餐饮」）
+        // → 「其他」→ 第一个可用分类
+        val mappedCategory = BillCategoryMapper.map(draft.pageCategory, direction)
         val categoryId = settings.defaultCategoryId
             ?.takeIf { id -> categories.any { it.id == id } }
+            ?: mappedCategory?.let { name -> categories.firstOrNull { it.name == name } }?.id
             ?: categories.firstOrNull { it.name == RecordDetectedPaymentUseCase.FALLBACK_CATEGORY_NAME }?.id
             ?: categories.first().id
 
         overlayError.value = null
-        debugLog("showConfirm accounts=${accounts.size} categories=${categories.size}")
-        overlay.show(
+        debugLog("showConfirm accounts=${accounts.size} categories=${categories.size} direction=$direction")
+        val shown = overlay.show(
             content = {
                 AfuTheme(themeProvider()) {
                     PaymentConfirmContent(
                         amountText = MoneyFormatter.formatWithSymbol(draft.amount),
                         merchant = draft.merchant,
                         sourceLabel = draft.source,
+                        directionLabel = if (direction == TransType.INCOME) "收入" else "支出",
+                        billTimeText = DateFormatter.billTimeLabel(draft.occurredAt),
                         accounts = accounts,
                         categories = categories,
                         initialAccountId = accountId,
                         initialCategoryId = categoryId,
                         errorText = overlayError.value,
+                        onDirectionChange = { toggleDirection() },
                         onConfirm = { account, category -> confirm(draft, account, category) },
                         onIgnore = { ignore(draft) },
                     )
@@ -166,12 +217,46 @@ class PaymentConfirmController(
             },
             onFirstFrame = { composeMs -> logVisible(draft, hitAt, composeMs) },
         )
+        if (!shown) {
+            onOverlayBlocked(draft)
+            return
+        }
+        shownAtMillis = SystemClock.uptimeMillis()
         startTimeout(draft)
+    }
+
+    /**
+     * 卡片弹不出来（系统支付保护拦截悬浮窗）。
+     *
+     * 账单已经进了待确认库，这里只负责让用户「知道有这么一笔」：
+     * 通知栏带计数，点进去就是本应用的待确认列表。
+     */
+    private fun onOverlayBlocked(draft: PaymentDraft) {
+        logger.log(
+            draft.sourcePackage,
+            "弹窗被系统拦截，已存入待确认",
+            draft.amount.cents,
+            draft.merchant,
+        )
+        scope.launch {
+            val count = runCatching { container.pendingBills.count() }.getOrDefault(1)
+            AutoLedgerKeepAlive.showPendingNotification(service, count)
+        }
+    }
+
+    /** 在卡片上切换收支方向，并按新方向重新加载分类。 */
+    private fun toggleDirection() {
+        val draft = currentDraft ?: return
+        val current = directionOverride ?: draft.direction
+        directionOverride = if (current == TransType.EXPENSE) TransType.INCOME else TransType.EXPENSE
+        debugLog("direction toggled -> $directionOverride")
+        val hitAt = currentHitAt
+        scope.launch { showConfirm(draft, hitAt) }
     }
 
     private suspend fun showNoAccount(draft: PaymentDraft, hitAt: Long) {
         overlayError.value = null
-        overlay.show(
+        val shown = overlay.show(
             content = {
                 AfuTheme(themeProvider()) {
                     NoAccountCard(
@@ -183,6 +268,11 @@ class PaymentConfirmController(
             },
             onFirstFrame = { composeMs -> logVisible(draft, hitAt, composeMs) },
         )
+        if (!shown) {
+            onOverlayBlocked(draft)
+            return
+        }
+        shownAtMillis = SystemClock.uptimeMillis()
         startTimeout(draft)
     }
 
@@ -202,11 +292,15 @@ class PaymentConfirmController(
     private fun confirm(draft: PaymentDraft, accountId: Long, categoryId: Long) {
         timeoutJob?.cancel()
         val fingerprint = shownFingerprint ?: draft.fingerprint()
+        // 用用户在卡片上选定的方向入账，而不是识别结果本身
+        val effective = draft.copy(direction = directionOverride ?: draft.direction)
         scope.launch {
-            when (val result = container.recordDetectedPayment.execute(draft, accountId, categoryId)) {
+            when (val result = container.recordDetectedPayment.execute(effective, accountId, categoryId)) {
                 is RecordResult.Success -> {
                     // 入账成功才写长有效期：这张账单以后都不该再提示
                     processedBills.mark(fingerprint)
+                    // 已经正式入账，待确认库里这条可以撤掉
+                    container.pendingBills.remove(fingerprint)
                     logger.log(draft.sourcePackage, "已入账", draft.amount.cents, draft.merchant)
                     hide()
                     toast("已记一笔 ${MoneyFormatter.formatWithSymbol(draft.amount)}")
@@ -237,7 +331,10 @@ class PaymentConfirmController(
         // 先收起，再落盘：用户点「忽略」必须立刻有反馈，不能等一次 IO。
         hide()
         logger.log(draft.sourcePackage, "用户忽略", draft.amount.cents, draft.merchant)
-        scope.launch { processedBills.mark(fingerprint) }
+        scope.launch {
+            processedBills.mark(fingerprint)
+            container.pendingBills.remove(fingerprint)
+        }
     }
 
     private fun startTimeout(draft: PaymentDraft) {
@@ -274,7 +371,26 @@ class PaymentConfirmController(
 
     private companion object {
         const val TAG = "AutoLedger"
-        const val OVERLAY_TIMEOUT_MILLIS = 60_000L
+        /**
+         * 卡片无操作后的自动收起时间。
+         *
+         * 原来是 60 秒，真机上暴露一个问题：用户按**系统返回键**从账单页回到列表时，
+         * 既不产生点击事件、前台包名也没变，卡片收不起来；而卡片存在期间识别被
+         * `OVERLAY_SHOWING` 节流 —— 表现就是「这一分钟内点别的账单都不识别」。
+         *
+         * 20 秒足够选分类（真的要慢慢选可以再点一次账单重新弹），
+         * 但不会让通道被堵整分钟。
+         */
+        const val OVERLAY_TIMEOUT_MILLIS = 20_000L
         const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+
+        /**
+         * 卡片弹出后的「换页信号冷却期」。
+         *
+         * 真机实测微信会在卡片出现后 1–3 秒补发一次点击事件（页面加载收尾），
+         * 不冷却的话卡片会被自己关掉。3 秒足够覆盖这个尾巴，又不会长到
+         * 让用户「真的翻页后卡片还赖着」。
+         */
+        const val PAGE_CHANGE_GRACE_MILLIS = 3_000L
     }
 }

@@ -32,6 +32,7 @@ class AutoLedgerSettingsRepository(
                 defaultCategoryId = prefs[KEY_DEFAULT_CATEGORY],
                 recognitionLogEnabled = prefs[KEY_RECOGNITION_LOG] ?: false,
                 ocrEnabled = prefs[KEY_OCR_ENABLED] ?: false,
+                hideKeepAliveNotification = prefs[KEY_HIDE_KEEPALIVE_NOTIFICATION] ?: false,
             )
         }
 
@@ -56,6 +57,10 @@ class AutoLedgerSettingsRepository(
         context.autoLedgerDataStore.edit { it[KEY_RECOGNITION_LOG] = enabled }
     }
 
+    suspend fun setHideKeepAliveNotification(hide: Boolean) {
+        context.autoLedgerDataStore.edit { it[KEY_HIDE_KEEPALIVE_NOTIFICATION] = hide }
+    }
+
     suspend fun setOcrEnabled(enabled: Boolean) {
         context.autoLedgerDataStore.edit { it[KEY_OCR_ENABLED] = enabled }
     }
@@ -66,5 +71,6 @@ class AutoLedgerSettingsRepository(
         val KEY_DEFAULT_CATEGORY = longPreferencesKey("default_category_id")
         val KEY_RECOGNITION_LOG = booleanPreferencesKey("recognition_log_enabled")
         val KEY_OCR_ENABLED = booleanPreferencesKey("ocr_enabled")
+        val KEY_HIDE_KEEPALIVE_NOTIFICATION = booleanPreferencesKey("hide_keepalive_notification")
     }
 }

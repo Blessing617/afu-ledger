@@ -59,6 +59,10 @@ class SettingsViewModel(
 
     val ocrStatus: StateFlow<OcrStatus> = ocrStatusHolder.state
 
+    fun setThemeStyle(styleId: String) {
+        viewModelScope.launch { themePreferences.setThemeStyle(styleId) }
+    }
+
     fun setThemeColor(colorId: String) {
         viewModelScope.launch { themePreferences.setThemeColor(colorId) }
     }
@@ -113,6 +117,10 @@ class SettingsViewModel(
 
     fun setOcrEnabled(enabled: Boolean) {
         viewModelScope.launch { autoLedgerSettings.setOcrEnabled(enabled) }
+    }
+
+    fun setHideKeepAliveNotification(hide: Boolean) {
+        viewModelScope.launch { autoLedgerSettings.setHideKeepAliveNotification(hide) }
     }
 
     fun clearLog() = recognitionLog.clear()

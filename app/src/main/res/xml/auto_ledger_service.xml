@@ -2,27 +2,53 @@
 <!--
   自动记账无障碍服务配置。
 
-  注意：这里不限定 packageNames，而是在代码里按白名单过滤。
-  原因有二：
-  1) debug 构建要用自家包名下的模拟页面验证链路；
-  2) 部分 ROM 对 XML 包名过滤行为不一致，运行时过滤更可靠。
+  ## packageNames 白名单（最有效的省电措施）
 
-  订阅 typeViewClicked 的原因：微信在同一个 Activity 内翻页（聊天 → 账单列表 →
-  账单详情）只发内容变化事件，不发窗口状态变化事件。用户翻页必然伴随点击，
-  点击事件是「用户主动换了页面」最可靠的信号，用它来突破内容变化的 8 秒节流。
+  限定只接收微信与支付宝的事件。不加的话**全系统每个界面变化都会回调进本进程**，
+  在微信/支付宝里快速滚动时事件量是每秒几十个，用户体感就是「开着就发热耗电」
+  —— 真机上已经因为耗电被用户主动关掉过一次。
 
-  flagRequestAccessibilityButton 是**保活相关**的，容易被忽略：
-  AOSP 的 AccessibilityManagerService.onPackagesForceStoppedLocked 在处理 force-stop 时，
-  会把带这个 flag 的服务单独归入 continuousServices 走不同处理路径。
-  HyperOS / MIUI 对无障碍服务的 force-stop 很激进（进入超级省电、锁屏清理等都会触发），
-  而被 force-stop 的应用其无障碍权限会被系统一并剥离 ——
-  这才是「设置一次之后过阵子又不生效」的真正原因，而不是权限本身会自己过期。
+  代价与兜底：
+  - 静态白名单不会覆盖「微信小程序」「双开」这类其它包名。本应用只认账单详情页，
+    这两类场景本来也不该触发，所以不影响功能。
+  - 个别 ROM 对 XML 包名过滤行为不一致时，代码里还有 `isSupportedPackage` 二次校验，
+    不会产生错误识别；只是省电收益打折，不会变差。
+
+  ## 为什么不声明 flagRequestAccessibilityButton
+
+  它的副作用是让系统显示**无障碍快捷按钮/图标**，用户明确反馈「这个无障碍图标很碍事」。
+  参考 GKD（gkd-kit/gkd，用户量最大的开源无障碍工具）的 a11y_info.xml 也没有声明这个 flag，
+  说明去掉它不影响长期运行。
+
+  失去的是 AOSP `onPackagesForceStoppedLocked` 里被归入 continuousServices 的一点恢复优势，
+  由前台服务 + 授权状态监听 + 回到应用时自愈来补偿。
+
+  ## 为什么保留 flagIncludeNotImportantViews 与 flagRetrieveInteractiveWindows
+
+  支付宝的账单页是 H5，内容区经常被标记为「不重要视图」，去掉前者就读不到金额；
+  微信把内容放在多个窗口里，去掉后者会漏窗口。GKD 同样两个都保留。
+  这笔开销靠上面的包名白名单和事件降频来省，而不是砍掉读文本的能力。
+
+  ## 订阅 typeViewClicked 的原因
+
+  微信在同一个 Activity 内翻页（聊天 → 账单列表 → 账单详情）只发内容变化事件，
+  不发窗口状态变化事件。用户翻页必然伴随点击，点击事件是「用户主动换了页面」
+  最可靠的信号，用它来突破内容变化的节流。
+
+  ## isAccessibilityTool
+
+  Android 12+ 用来声明「本服务是辅助工具而非滥用无障碍」，加上它对系统行为
+  与被判定为可疑应用的风险都有好处。低版本忽略该属性。
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewClicked"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagIncludeNotImportantViews|flagRetrieveInteractiveWindows|flagRequestAccessibilityButton"
+    android:accessibilityFlags="flagIncludeNotImportantViews|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
     android:canTakeScreenshot="true"
     android:description="@string/auto_ledger_service_description"
-    android:notificationTimeout="400" />
+    android:isAccessibilityTool="true"
+    android:notificationTimeout="400"
+    android:packageNames="com.tencent.mm,com.eg.android.AlipayGphone"
+    tools:targetApi="s" />

@@ -51,9 +51,28 @@ object AfuMotion {
         stiffness = Spring.StiffnessMediumLow,
     )
 
+    /**
+     * Q 弹手感：用于**小元素**（分类格、按键、图标）的按下与选中。
+     *
+     * 阻尼 0.55 会产生轻微过冲（约 5%），视觉上有「弹一下才落住」的可爱感；
+     * 只允许用于小元素 —— 整页或大卡片过冲会露出底色，规格明确禁止。
+     */
+    fun bouncy(): SpringSpec<Float> = spring(
+        dampingRatio = 0.55f,
+        stiffness = Spring.StiffnessMedium,
+    )
+
+    /** 底部面板上滑/回位：阻尼更高，因为面板面积大，过冲会明显。 */
+    fun sheet(): SpringSpec<Float> = spring(
+        dampingRatio = 0.8f,
+        stiffness = Spring.StiffnessMediumLow,
+    )
+
     /** 时长档位（毫秒）。与规格的 200 / 260 上限对齐。 */
     const val DURATION_TAB_MS = 180
     const val DURATION_ENTER_MS = 260
     const val DURATION_EXIT_MS = 160
     const val DURATION_OVERLAY_MS = 240
+    const val DURATION_SCRIM_MS = 200
+    const val DURATION_MICRO_MS = 140
 }

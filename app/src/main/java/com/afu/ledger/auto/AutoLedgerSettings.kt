@@ -12,4 +12,11 @@ data class AutoLedgerSettings(
      * 默认关闭：截屏是敏感能力，要用户自己打开，并在设置页看到它会截取屏幕做本机识别。
      */
     val ocrEnabled: Boolean = false,
+    /**
+     * 隐藏常驻通知。
+     *
+     * 前台服务的通知是保活手段之一（进程优先级）。用户嫌通知碍事可以关掉，
+     * 代价是被系统冻结/强杀后恢复能力变差 —— 这一点要在设置页如实写明。
+     */
+    val hideKeepAliveNotification: Boolean = false,
 )

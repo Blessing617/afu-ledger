@@ -26,7 +26,15 @@ object NodeTextCollector {
     private const val MAX_DEPTH = 24
     private const val MAX_TEXT_LENGTH = 6_000
 
-    fun collect(root: AccessibilityNodeInfo?): List<String> {
+    fun collect(root: AccessibilityNodeInfo?): List<String> = collectWithBounds(root).map { it.text }
+
+    /**
+     * 与 [collect] 相同，但保留每个节点的屏幕位置。
+     *
+     * 位置必须一起带出去：下游的「标签 → 值」还原靠坐标按视觉行分组，
+     * 只给扁平文本会把「值 / 标签」的顺序丢掉（见 [PageText] 的说明）。
+     */
+    fun collectWithBounds(root: AccessibilityNodeInfo?): List<PageText> {
         if (root == null) return emptyList()
 
         val items = ArrayList<Item>(64)
@@ -66,8 +74,19 @@ object NodeTextCollector {
 
         return items
             .sortedWith(compareBy({ it.sortTop }, { it.sortLeft }, { it.order }))
-            .map { it.text }
+            .map {
+                // 无 bounds 的节点在排序时用了哨兵值，这里还原成「无位置」的语义，
+                // 避免下游把 10 亿当成真实像素去做行分组
+                PageText(
+                    text = it.text,
+                    top = if (it.sortTop >= NO_BOUNDS_THRESHOLD) PageText.NO_POSITION else it.sortTop,
+                    left = if (it.sortLeft >= NO_BOUNDS_THRESHOLD) PageText.NO_POSITION else it.sortLeft,
+                )
+            }
     }
+
+    /** 与 [PageText.NO_POSITION] 对应的排序哨兵阈值。 */
+    private const val NO_BOUNDS_THRESHOLD = Int.MAX_VALUE / 8
 
     /**
      * 文本 + 它在屏幕上的位置。

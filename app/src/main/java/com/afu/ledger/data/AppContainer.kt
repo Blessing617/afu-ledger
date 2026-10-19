@@ -3,6 +3,7 @@ package com.afu.ledger.data
 import android.content.Context
 import com.afu.ledger.auto.AutoLedgerSettingsRepository
 import com.afu.ledger.auto.OcrStatusHolder
+import com.afu.ledger.auto.PendingBillStore
 import com.afu.ledger.auto.ProcessedBillStore
 import com.afu.ledger.auto.RecognitionLog
 import com.afu.ledger.auto.RecordDetectedPaymentUseCase
@@ -38,6 +39,14 @@ class AppContainer(context: Context) {
 
     /** 已处理过的账单指纹（忽略 / 已入账 / 刚弹过），持久化以免重启后重复打扰。 */
     val processedBills: ProcessedBillStore = ProcessedBillStore(context.applicationContext)
+
+    /**
+     * 待确认账单。
+     *
+     * 系统对支付类应用可能禁止悬浮窗，识别成功不等于用户看到卡片；
+     * 先落这里再弹窗，弹不出来也能从首页入口补确认。
+     */
+    val pendingBills: PendingBillStore = PendingBillStore(context.applicationContext)
 
     /** 截图 OCR 的运行状态，同样只存在内存里。 */
     val ocrStatus: OcrStatusHolder = OcrStatusHolder()

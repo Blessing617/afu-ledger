@@ -65,4 +65,18 @@ class OcrTextSanitizerTest {
     fun `空串不炸`() {
         assertEquals("", sanitize(""))
     }
+
+    @Test
+    fun `负号被读成汉字一才纠正`() {
+        // 真机实测：微信账单金额「-23.90」被 OCR 读成「一23.90」
+        assertEquals("-23.90", sanitize("一23.90"))
+        assertEquals("-128.50", sanitize("—128.50"))
+    }
+
+    @Test
+    fun `汉字一不在数字前就不动`() {
+        assertEquals("一元", sanitize("一元"))
+        assertEquals("一起吃饭", sanitize("一起吃饭"))
+        assertEquals("一共30元", sanitize("一共30元"))
+    }
 }

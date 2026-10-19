@@ -1,6 +1,7 @@
 package com.afu.ledger.auto
 
 import com.afu.ledger.domain.model.Money
+import com.afu.ledger.domain.model.TransType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -11,10 +12,13 @@ class DetectionDeduperTest {
     private fun draft(amount: Long = 2550L, merchant: String? = "瑞幸咖啡"): PaymentDraft =
         PaymentDraft(
             amount = Money(amount),
+            direction = TransType.EXPENSE,
             merchant = merchant,
             sourcePackage = PaymentPageRules.WECHAT_PACKAGE,
-            pageType = PaymentPageType.PAYMENT_RESULT,
-            capturedAt = 0L,
+            pageType = PaymentPageType.BILL_DETAIL,
+            occurredAt = 1_700_000_000_000L,
+            occurredAtSource = TimeSource.PAGE,
+            capturedAt = 1_700_000_000_000L,
         )
 
     @Test
@@ -37,12 +41,24 @@ class DetectionDeduperTest {
     }
 
     @Test
-    fun `相同金额不同商户算两笔`() {
+    fun `商户名不参与指纹所以同金额不同商户算同一笔`() {
+        // 真机证据：同一张账单两次 OCR 会把商户名读成「阿佑鲜烫牛內米线」和
+        // 「阿佑鮮烫牛内米线」。商户名带进指纹就变成两个指纹，同一张账单反复弹窗。
+        // 代价是「同一分钟内给两家付了同样金额」会被合并成一次 —— 罕见且能手动补记。
         var now = 1_000L
         val deduper = DetectionDeduper(clock = { now })
 
         assertTrue(deduper.shouldNotify(draft(merchant = "瑞幸咖啡")))
-        assertTrue(deduper.shouldNotify(draft(merchant = "沙县小吃")))
+        assertFalse(deduper.shouldNotify(draft(merchant = "沙县小吃")))
+    }
+
+    @Test
+    fun `同金额但账单时间不同分钟算两笔`() {
+        val deduper = DetectionDeduper(clock = { 1_000L })
+
+        assertTrue(deduper.shouldNotify(draft()))
+        val later = draft().copy(occurredAt = 1_700_000_000_000L + 120_000L)
+        assertTrue(deduper.shouldNotify(later))
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.afu.ledger.auto
 
 import com.afu.ledger.domain.model.Money
+import com.afu.ledger.domain.model.TransType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,24 +26,30 @@ class PaymentPageDetectorTest {
     fun `微信支付成功页`() {
         val draft = hit(
             releaseDetector.detect(
-                PageSnapshot(
+                PageSnapshot.ofTexts(
                     PaymentPageRules.WECHAT_PACKAGE,
-                    listOf("支付成功", "¥25.50", "瑞幸咖啡", "完成"),
+                    listOf(
+                        "当前状态", "支付成功", "¥25.50", "瑞幸咖啡",
+                        "交易单号", "4500000576202610184019086744",
+                    ),
                 ),
             ),
         )
         assertEquals(Money(2550), draft.amount)
         assertEquals("瑞幸咖啡", draft.merchant)
-        assertEquals(PaymentPageType.PAYMENT_RESULT, draft.pageType)
+        assertEquals(PaymentPageType.BILL_DETAIL, draft.pageType)
     }
 
     @Test
     fun `微信旧版文案 已支付`() {
         val draft = hit(
             releaseDetector.detect(
-                PageSnapshot(
+                PageSnapshot.ofTexts(
                     PaymentPageRules.WECHAT_PACKAGE,
-                    listOf("已支付", "15.00元", "美团单车", "查看账单详情"),
+                    listOf(
+                        "当前状态", "已支付", "15.00元", "美团单车",
+                        "交易单号", "4500000576202610184019086744",
+                    ),
                 ),
             ),
         )
@@ -53,9 +60,12 @@ class PaymentPageDetectorTest {
     fun `支付宝付款成功页`() {
         val draft = hit(
             releaseDetector.detect(
-                PageSnapshot(
+                PageSnapshot.ofTexts(
                     PaymentPageRules.ALIPAY_PACKAGE,
-                    listOf("付款成功", "¥120.00", "盒马鲜生", "完成"),
+                    listOf(
+                        "付款成功", "¥120.00", "盒马鲜生", "收单机构",
+                        "某支付科技有限公司", "交易单号", "2026101822001",
+                    ),
                 ),
             ),
         )
@@ -67,9 +77,12 @@ class PaymentPageDetectorTest {
     fun `支付宝交易成功页`() {
         val draft = hit(
             releaseDetector.detect(
-                PageSnapshot(
+                PageSnapshot.ofTexts(
                     PaymentPageRules.ALIPAY_PACKAGE,
-                    listOf("交易成功", "¥6.50", "便利蜂", "返回首页"),
+                    listOf(
+                        "交易成功", "¥6.50", "便利蜂", "收单机构",
+                        "某支付科技有限公司", "交易单号", "2026101822001",
+                    ),
                 ),
             ),
         )
@@ -82,7 +95,7 @@ class PaymentPageDetectorTest {
     fun `非受支持应用直接跳过`() {
         assertEquals(
             MissReason.UNSUPPORTED_PACKAGE,
-            miss(releaseDetector.detect(PageSnapshot("com.example.shop", listOf("支付成功", "¥25.50")))),
+            miss(releaseDetector.detect(PageSnapshot.ofTexts("com.example.shop", listOf("支付成功", "¥25.50")))),
         )
     }
 
@@ -92,7 +105,7 @@ class PaymentPageDetectorTest {
             MissReason.NOT_PAYMENT_PAGE,
             miss(
                 releaseDetector.detect(
-                    PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, listOf("微信", "文件传输助手", "今天 12:30")),
+                    PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, listOf("微信", "文件传输助手", "今天 12:30")),
                 ),
             ),
         )
@@ -104,7 +117,7 @@ class PaymentPageDetectorTest {
             MissReason.NOT_PAYMENT_PAGE,
             miss(
                 releaseDetector.detect(
-                    PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, listOf("扫一扫", "相册", "取消")),
+                    PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, listOf("扫一扫", "相册", "取消")),
                 ),
             ),
         )
@@ -116,7 +129,13 @@ class PaymentPageDetectorTest {
             MissReason.NO_AMOUNT,
             miss(
                 releaseDetector.detect(
-                    PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, listOf("支付成功", "金额", "完成")),
+                    PageSnapshot.ofTexts(
+                        PaymentPageRules.WECHAT_PACKAGE,
+                        listOf(
+                            "当前状态", "支付成功", "金额",
+                            "交易单号", "4500000576202610184019086744",
+                        ),
+                    ),
                 ),
             ),
         )
@@ -128,7 +147,13 @@ class PaymentPageDetectorTest {
             MissReason.AMBIGUOUS_AMOUNT,
             miss(
                 releaseDetector.detect(
-                    PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, listOf("支付成功", "¥25.50", "优惠 ¥3.00")),
+                    PageSnapshot.ofTexts(
+                        PaymentPageRules.WECHAT_PACKAGE,
+                        listOf(
+                            "当前状态", "¥25.50", "¥3.00",
+                            "交易单号", "4500000576202610184019086744",
+                        ),
+                    ),
                 ),
             ),
         )
@@ -140,7 +165,13 @@ class PaymentPageDetectorTest {
             MissReason.ZERO_AMOUNT,
             miss(
                 releaseDetector.detect(
-                    PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, listOf("支付成功", "¥0.00")),
+                    PageSnapshot.ofTexts(
+                        PaymentPageRules.WECHAT_PACKAGE,
+                        listOf(
+                            "当前状态", "支付成功", "¥0.00",
+                            "交易单号", "4500000576202610184019086744",
+                        ),
+                    ),
                 ),
             ),
         )
@@ -152,19 +183,41 @@ class PaymentPageDetectorTest {
             MissReason.EXCLUDED_KEYWORD,
             miss(
                 releaseDetector.detect(
-                    PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, listOf("支付成功", "¥19.90", "将于明日扣款")),
+                    PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, listOf("支付成功", "¥19.90", "将于明日扣款")),
                 ),
             ),
         )
     }
 
     @Test
-    fun `退款页不记账`() {
+    fun `退款账单页记为收入`() {
+        // 本期支持收入：退款页金额没有方向前缀，靠状态词「退款成功」判成收入。
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.ALIPAY_PACKAGE,
+                    listOf(
+                        "账单详情", "退款成功", "100元", "账单分类", "退款",
+                        "交易单号", "2026101522001412345678",
+                    ),
+                ),
+            ),
+        )
+        assertEquals(Money(10000), draft.amount)
+        assertEquals(TransType.INCOME, draft.direction)
+    }
+
+    @Test
+    fun `支付结果页不再识别`() {
+        // 识别范围收敛为账单详情页：只有「付款成功 + 金额」而没有账单页证据的页面不入账。
         assertEquals(
-            MissReason.EXCLUDED_KEYWORD,
+            MissReason.NOT_PAYMENT_PAGE,
             miss(
                 releaseDetector.detect(
-                    PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, listOf("退款成功", "¥25.50")),
+                    PageSnapshot.ofTexts(
+                        PaymentPageRules.ALIPAY_PACKAGE,
+                        listOf("付款成功", "¥25.50", "瑞幸咖啡", "完成"),
+                    ),
                 ),
             ),
         )
@@ -174,7 +227,7 @@ class PaymentPageDetectorTest {
 
     @Test
     fun `账单详情页发布版可识别`() {
-        val snapshot = PageSnapshot(
+        val snapshot = PageSnapshot.ofTexts(
             PaymentPageRules.ALIPAY_PACKAGE,
             listOf("账单详情", "-25.50", "地铁", "交易单号 2026101822001"),
         )
@@ -186,7 +239,7 @@ class PaymentPageDetectorTest {
     @Test
     fun `账单详情页 debug 版也可识别`() {
         val debugDetector = PaymentPageDetector(debugPackageName = "com.afu.ledger")
-        val snapshot = PageSnapshot(
+        val snapshot = PageSnapshot.ofTexts(
             PaymentPageRules.ALIPAY_PACKAGE,
             listOf("账单详情", "-25.50", "地铁", "交易单号 2026101822001"),
         )
@@ -214,7 +267,7 @@ class PaymentPageDetectorTest {
         )
         assertEquals(
             MissReason.MAIN_SCREEN,
-            miss(releaseDetector.detect(PageSnapshot(PaymentPageRules.ALIPAY_PACKAGE, texts))),
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.ALIPAY_PACKAGE, texts))),
         )
     }
 
@@ -234,7 +287,7 @@ class PaymentPageDetectorTest {
         )
         assertEquals(
             MissReason.MAIN_SCREEN,
-            miss(releaseDetector.detect(PageSnapshot(PaymentPageRules.ALIPAY_PACKAGE, texts))),
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.ALIPAY_PACKAGE, texts))),
         )
     }
 
@@ -253,7 +306,7 @@ class PaymentPageDetectorTest {
         )
         assertEquals(
             MissReason.MAIN_SCREEN,
-            miss(releaseDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, texts))),
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
         )
     }
 
@@ -272,7 +325,7 @@ class PaymentPageDetectorTest {
         )
         assertEquals(
             MissReason.MAIN_SCREEN,
-            miss(releaseDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, texts))),
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
         )
     }
 
@@ -281,7 +334,7 @@ class PaymentPageDetectorTest {
         val texts = listOf("交易", "订单", "金额", "实付", "合计", "¥25.50")
         assertEquals(
             MissReason.NOT_PAYMENT_PAGE,
-            miss(releaseDetector.detect(PageSnapshot(PaymentPageRules.ALIPAY_PACKAGE, texts))),
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.ALIPAY_PACKAGE, texts))),
         )
     }
 
@@ -300,7 +353,7 @@ class PaymentPageDetectorTest {
             "支付时间",
             "2026年10月18日20:10:02",
         )
-        val draft = hit(releaseDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, texts)))
+        val draft = hit(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts)))
         assertEquals("4500000576202610184019086744", draft.tradeNo)
         assertEquals("微信", draft.source)
         assertEquals(Money(2390), draft.amount)
@@ -310,9 +363,12 @@ class PaymentPageDetectorTest {
     fun `指纹优先用交易单号`() {
         val base = PaymentDraft(
             amount = Money(2390),
+            direction = TransType.EXPENSE,
             merchant = "美团",
             sourcePackage = PaymentPageRules.WECHAT_PACKAGE,
             pageType = PaymentPageType.BILL_DETAIL,
+            occurredAt = 1_700_000_000_000L,
+            occurredAtSource = TimeSource.PAGE,
             capturedAt = 1_700_000_000_000L,
             tradeNo = "4500000576202610184019086744",
         )
@@ -328,7 +384,13 @@ class PaymentPageDetectorTest {
         val debugDetector = PaymentPageDetector(debugPackageName = "com.afu.ledger")
         val draft = hit(
             debugDetector.detect(
-                PageSnapshot("com.afu.ledger", listOf("支付成功", "¥25.50", "瑞幸咖啡")),
+                PageSnapshot.ofTexts(
+                    "com.afu.ledger",
+                    listOf(
+                        "账单详情", "支付成功", "¥25.50", "瑞幸咖啡",
+                        "交易单号", "4500000576202610184019086744",
+                    ),
+                ),
             ),
         )
         assertEquals(Money(2550), draft.amount)
