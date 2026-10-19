@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.afu.ledger.BuildConfig
+import androidx.compose.runtime.CompositionLocalProvider
+import com.afu.ledger.ui.component.LocalForceOpaqueCard
 import com.afu.ledger.auto.AutoLedgerSettings
 import com.afu.ledger.auto.OcrStatus
 import com.afu.ledger.auto.RecognitionEntry
@@ -86,72 +88,74 @@ fun SettingsScreen(
     // 同时失效所有可见 item，快速滑动时表现为掉帧（官方 Compose 性能指南明确禁止）。
     val keepAliveState by rememberKeepAliveState()
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = Spacing.lg,
-            end = Spacing.lg,
-            top = Spacing.sm,
-            bottom = 140.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-    ) {
-        item(key = "appearance") {
-            AppearanceEntry(settings = settings, onClick = onOpenAppearance)
-        }
-
-        item(key = "account-header") {
-            SectionLabel("记账")
-        }
-        item(key = "account-group") {
-            SettingGroup {
-                SettingRow(
-                    icon = Icons.Rounded.Category,
-                    title = "分类管理",
-                    subtitle = "新增、重命名、换图标与颜色",
-                    detail = "${expenseCategories.size} 个支出",
-                    onClick = onManageCategories,
-                )
+    CompositionLocalProvider(LocalForceOpaqueCard provides true) {
+        LazyColumn(
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = Spacing.lg,
+                end = Spacing.lg,
+                top = Spacing.sm,
+                bottom = 140.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            item(key = "appearance") {
+                AppearanceEntry(settings = settings, onClick = onOpenAppearance)
             }
-        }
 
-        item(key = "auto-header") {
-            SectionLabel("自动记账")
-        }
-        item(key = "auto-group") {
-            SettingGroup {
-                AutoLedgerSection(
-                    settings = autoSettings,
-                    serviceEnabled = serviceEnabled,
-                    accounts = accounts,
-                    categories = expenseCategories,
-                    logEntries = logEntries,
-                    ocrStatus = ocrStatus,
-                    keepAliveState = keepAliveState,
-                    wasEverEnabled = wasEverEnabled,
-                    onEnabledChange = onAutoEnabledChange,
-                    onDefaultAccountChange = onDefaultAccountChange,
-                    onDefaultCategoryChange = onDefaultCategoryChange,
-                    onRecognitionLogChange = onRecognitionLogChange,
-                    onOcrEnabledChange = onOcrEnabledChange,
-                    onHideKeepAliveNotificationChange = onHideKeepAliveNotificationChange,
-                    onClearLog = onClearLog,
-                )
+            item(key = "account-header") {
+                SectionLabel("记账")
             }
-        }
+            item(key = "account-group") {
+                SettingGroup {
+                    SettingRow(
+                        icon = Icons.Rounded.Category,
+                        title = "分类管理",
+                        subtitle = "新增、重命名、换图标与颜色",
+                        detail = "${expenseCategories.size} 个支出",
+                        onClick = onManageCategories,
+                    )
+                }
+            }
 
-        item(key = "about") {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = Spacing.xl, bottom = Spacing.md),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "v${BuildConfig.VERSION_NAME}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                )
+            item(key = "auto-header") {
+                SectionLabel("自动记账")
+            }
+            item(key = "auto-group") {
+                SettingGroup {
+                    AutoLedgerSection(
+                        settings = autoSettings,
+                        serviceEnabled = serviceEnabled,
+                        accounts = accounts,
+                        categories = expenseCategories,
+                        logEntries = logEntries,
+                        ocrStatus = ocrStatus,
+                        keepAliveState = keepAliveState,
+                        wasEverEnabled = wasEverEnabled,
+                        onEnabledChange = onAutoEnabledChange,
+                        onDefaultAccountChange = onDefaultAccountChange,
+                        onDefaultCategoryChange = onDefaultCategoryChange,
+                        onRecognitionLogChange = onRecognitionLogChange,
+                        onOcrEnabledChange = onOcrEnabledChange,
+                        onHideKeepAliveNotificationChange = onHideKeepAliveNotificationChange,
+                        onClearLog = onClearLog,
+                    )
+                }
+            }
+
+            item(key = "about") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = Spacing.xl, bottom = Spacing.md),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "v${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                    )
+                }
             }
         }
     }

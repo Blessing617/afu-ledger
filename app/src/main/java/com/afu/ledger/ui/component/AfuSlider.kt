@@ -1,37 +1,40 @@
 package com.afu.ledger.ui.component
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.afu.ledger.ui.theme.LocalThemeStyle
 
 /**
- * 应用统一的滑块。
+ * 应用统一的滑块：**保留 Material 的手势实现，只换外观**。
  *
- * ## 为什么不用 Material Slider
+ * ## 为什么不再自绘手势
  *
- * Material3 默认 Slider 是「一条 4dp 细线 + 小圆点」的仪表盘样子：
- * 轨道太细、拇指太小、没有任何「可以拖」的暗示，和应用的圆润贴纸语言对不上。
+ * 之前用 Canvas + pointerInput 自绘，外观是好了，但真机上手感反而变差
+ * （拖动掉帧、偶尔只跳到起点终点）。Material3 的 `Slider` 内部是成熟的
+ * 拖动状态机（touch slop、多点、与父滚动的手势竞争都处理过），
+ * 流畅度本来就可靠 —— 不好看的只是它的轨道和拇指。
  *
- * ## 手势为什么手写
- *
- * 之前用「`detectTapGestures` + `detectHorizontalDragGestures` 两个 pointerInput」，
- * 真机上表现为「只跳到起点和终点、中间不跟手」—— 两个手势检测器在同一个指针事件流上
- * 互相争抢，中间的 move 被吞掉了。这里用 `awaitEachGesture` 自己处理：
- * 按下即定位，之后每次 move 都更新，抬手才回调结束。
+ * 所以这里用 `Slider` + 自定义 `thumb` / `track`：
+ * - 手势、位置、无障碍全部交给官方实现
+ * - 视觉换成粗圆角轨道 + 白色圆扣（描边主题下加深色描边）
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AfuSlider(
     value: Float,
@@ -41,81 +44,63 @@ fun AfuSlider(
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
 ) {
     val style = LocalThemeStyle.current
-    val trackColor = MaterialTheme.colorScheme.surfaceVariant
-    val activeColor = MaterialTheme.colorScheme.primary
+    val primary = MaterialTheme.colorScheme.primary
+    val track = MaterialTheme.colorScheme.surfaceVariant
     val thumbFill = MaterialTheme.colorScheme.surface
     val thumbRing = MaterialTheme.colorScheme.outline
-    val outlineWidth = style.outlineWidth
+    val sticker = style.outlineWidth > 0.dp
 
-    BoxWithConstraints(modifier = modifier.fillMaxWidth().height(44.dp)) {
-        val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
-        val span = (valueRange.endInclusive - valueRange.start).takeIf { it > 0f } ?: 1f
-        val fraction = ((value - valueRange.start) / span).coerceIn(0f, 1f)
-
-        fun updateFromX(x: Float) {
-            val raw = (x / widthPx).coerceIn(0f, 1f)
-            onValueChange(valueRange.start + raw * span)
-        }
-
-        Canvas(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(44.dp)
-                .pointerInput(valueRange) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        updateFromX(down.position.x)
-                        var lastX = down.position.x
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!change.pressed) {
-                                change.consume()
-                                break
-                            }
-                            if (change.position.x != lastX) {
-                                lastX = change.position.x
-                                updateFromX(lastX)
-                                change.consume()
-                            }
-                        }
-                        onValueChangeFinished()
-                    }
-                },
-        ) {
-            val trackHeight = 12.dp.toPx()
-            val thumbRadius = 12.dp.toPx()
-            val cy = size.height / 2f
-            val trackLeft = thumbRadius
-            val trackWidth = (size.width - thumbRadius * 2).coerceAtLeast(1f)
-            val activeWidth = trackWidth * fraction
-
-            // 轨道
-            drawRoundRect(
-                color = trackColor,
-                topLeft = Offset(trackLeft, cy - trackHeight / 2f),
-                size = Size(trackWidth, trackHeight),
-                cornerRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f),
-            )
-            // 已选段
-            if (activeWidth > 0f) {
-                drawRoundRect(
-                    color = activeColor,
-                    topLeft = Offset(trackLeft, cy - trackHeight / 2f),
-                    size = Size(activeWidth, trackHeight),
-                    cornerRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f),
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
+        valueRange = valueRange,
+        modifier = modifier,
+        colors = SliderDefaults.colors(
+            thumbColor = thumbFill,
+            activeTrackColor = primary,
+            inactiveTrackColor = track,
+            activeTickColor = primary,
+            inactiveTickColor = track,
+        ),
+        thumb = {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(thumbFill)
+                    .border(
+                        width = 2.dp,
+                        color = if (sticker) thumbRing.copy(alpha = 0.85f) else primary,
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(primary),
                 )
             }
-            // 拇指：白扣子 + 主色描边 + 中心点
-            val thumbX = trackLeft + activeWidth
-            drawCircle(color = thumbFill, radius = thumbRadius, center = Offset(thumbX, cy))
-            drawCircle(
-                color = if (outlineWidth > 0.dp) thumbRing.copy(alpha = 0.85f) else activeColor,
-                radius = thumbRadius,
-                center = Offset(thumbX, cy),
-                style = Stroke(width = (if (outlineWidth > 0.dp) 2.dp else 2.5.dp).toPx()),
-            )
-            drawCircle(color = activeColor, radius = 4.dp.toPx(), center = Offset(thumbX, cy))
-        }
-    }
+        },
+        track = { sliderState ->
+            val span = (valueRange.endInclusive - valueRange.start).takeIf { it > 0f } ?: 1f
+            val fraction = ((sliderState.value - valueRange.start) / span).coerceIn(0f, 1f)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(12.dp)
+                    .clip(CircleShape)
+                    .background(track),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(fraction)
+                        .fillMaxHeight()
+                        .background(primary),
+                )
+            }
+        },
+    )
 }

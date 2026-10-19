@@ -45,8 +45,11 @@ fun AfuCard(
     //
     // 之前这里写死 1f，直接导致设置页的滑块在描边主题下完全没效果（用户反馈「盲调」）；
     // 性能问题改用「拖动时只更新内存 + 节流」解决，而不是牺牲这个可调项。
-    val alpha = (effectiveSurfaceAlpha() * style.surfaceAlphaScale)
-        .coerceIn(0.55f, 1f)
+    val alpha = if (LocalForceOpaqueCard.current) {
+        1f
+    } else {
+        (effectiveSurfaceAlpha() * style.surfaceAlphaScale).coerceIn(0.55f, 1f)
+    }
 
     val borderModifier = when (style.cardStyle) {
         CardStyle.OUTLINED -> Modifier.border(

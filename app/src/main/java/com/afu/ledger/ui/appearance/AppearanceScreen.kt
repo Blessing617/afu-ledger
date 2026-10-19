@@ -44,6 +44,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.CompositionLocalProvider
+import com.afu.ledger.ui.component.LocalForceOpaqueCard
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -130,97 +132,99 @@ fun AppearanceScreen(
 
     // 外观页自身不透背景：页面叠在标签页之上，透出下层或背景图都会让文字发花。
     // 「调参数能看见效果」由缩略图承担 —— 它已经把可见度/模糊/遮罩都作用上去了。
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        Scaffold(
-            containerColor = Color.Transparent,
-            topBar = {
-                TopAppBar(
-                    title = { Text("外观与主题") },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.Rounded.ArrowBack, contentDescription = "返回")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                    ),
-                )
-            },
-        ) { innerPadding ->
-        LazyColumn(
+    CompositionLocalProvider(LocalForceOpaqueCard provides true) {
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(
-                start = Spacing.lg,
-                end = Spacing.lg,
-                bottom = Spacing.xxl,
-            ),
-            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                .background(MaterialTheme.colorScheme.background),
         ) {
-            item(key = "preview") {
-                ThemePreviewCard(settings = settings)
-            }
+            Scaffold(
+                containerColor = Color.Transparent,
+                topBar = {
+                    TopAppBar(
+                        title = { Text("外观与主题") },
+                        navigationIcon = {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.Rounded.ArrowBack, contentDescription = "返回")
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                        ),
+                    )
+                },
+            ) { innerPadding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentPadding = PaddingValues(
+                    start = Spacing.lg,
+                    end = Spacing.lg,
+                    bottom = Spacing.xxl,
+                ),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+            ) {
+                item(key = "preview") {
+                    ThemePreviewCard(settings = settings)
+                }
 
-            item(key = "styles-header") {
-                Text(
-                    text = "风格",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = Spacing.sm, start = Spacing.xs),
-                )
-            }
+                item(key = "styles-header") {
+                    Text(
+                        text = "风格",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = Spacing.sm, start = Spacing.xs),
+                    )
+                }
 
-            item(key = "styles") {
-                StyleGrid(
-                    currentStyleId = settings.themeStyleId,
-                    onStyleChange = onStyleChange,
-                )
-            }
+                item(key = "styles") {
+                    StyleGrid(
+                        currentStyleId = settings.themeStyleId,
+                        onStyleChange = onStyleChange,
+                    )
+                }
 
-            item(key = "colors-header") {
-                Text(
-                    text = "主题色",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = Spacing.sm, start = Spacing.xs),
-                )
-            }
+                item(key = "colors-header") {
+                    Text(
+                        text = "主题色",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = Spacing.sm, start = Spacing.xs),
+                    )
+                }
 
-            item(key = "colors") {
-                ColorGrid(
-                    selectedId = settings.themeColorId,
-                    onSelect = onThemeColorChange,
-                )
-            }
+                item(key = "colors") {
+                    ColorGrid(
+                        selectedId = settings.themeColorId,
+                        onSelect = onThemeColorChange,
+                    )
+                }
 
-            item(key = "dark") {
-                DarkModeSelector(
-                    mode = settings.darkMode,
-                    onChange = onDarkModeChange,
-                )
-            }
+                item(key = "dark") {
+                    DarkModeSelector(
+                        mode = settings.darkMode,
+                        onChange = onDarkModeChange,
+                    )
+                }
 
-            item(key = "background") {
-                BackgroundSection(
-                    settings = settings,
-                    onPick = {
-                        pickImage.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
-                    },
-                    onReset = onBackgroundReset,
-                    onVisibilityChange = onBackgroundVisibilityChange,
-                    onBlurChange = onBackgroundBlurChange,
-                    onScrimChange = onBackgroundScrimChange,
-                    onCardOpacityChange = onCardOpacityChange,
-                )
+                item(key = "background") {
+                    BackgroundSection(
+                        settings = settings,
+                        onPick = {
+                            pickImage.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                            )
+                        },
+                        onReset = onBackgroundReset,
+                        onVisibilityChange = onBackgroundVisibilityChange,
+                        onBlurChange = onBackgroundBlurChange,
+                        onScrimChange = onBackgroundScrimChange,
+                        onCardOpacityChange = onCardOpacityChange,
+                    )
+                }
             }
-        }
+            }
         }
     }
 }
@@ -407,6 +411,8 @@ private fun StyleCard(
             )
             .clickable(onClick = onClick)
             .padding(Spacing.sm),
+        // 风格卡是「一张图 + 名字」的卡片，文字居中比左对齐更像卡片标签
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             modifier = Modifier
@@ -647,13 +653,20 @@ private fun BackgroundSection(
     onScrimChange: (Boolean) -> Unit,
     onCardOpacityChange: (Float) -> Unit,
 ) {
-    // 卡片不透明度的拖动预览：拖动过程中让所有卡片实时变化，松手后再落盘
-    val cardOpacityPreview = LocalCardOpacityPreview.current
-    val scope = rememberCoroutineScope()
-    var lastPreviewAt by remember { mutableStateOf(0L) }
-    // 提到最外层：缩略图上的示例卡和下面的滑块共用同一个值
+    // 拖动只更新本页的示例卡与缩略图；松手才写 DataStore 让全局生效。
+    // 全局跟手预览会让每帧都重新合成所有半透明卡片，真机上拖起来是顿的。
     var cardValue by remember(settings.cardOpacity) {
         mutableFloatStateOf(settings.cardOpacity)
+    }
+    // 松手后稍等再落盘：连续拖动会取消上一次，避免每次抬手都触发一次全树换肤
+    val saveScope = rememberCoroutineScope()
+    var pendingSave by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun saveSoon(block: () -> Unit) {
+        pendingSave?.cancel()
+        pendingSave = saveScope.launch {
+            delay(220)
+            block()
+        }
     }
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         Text(
@@ -699,7 +712,7 @@ private fun BackgroundSection(
                 AfuSlider(
                     value = sliderValue,
                     onValueChange = { sliderValue = it },
-                    onValueChangeFinished = { onVisibilityChange(sliderValue) },
+                    onValueChangeFinished = { saveSoon { onVisibilityChange(sliderValue) } },
                     valueRange = 0f..1f,
                 )
                 SettingSwitchRow(
@@ -734,27 +747,8 @@ private fun BackgroundSection(
                 }
                 AfuSlider(
                     value = cardValue,
-                    onValueChange = {
-                        cardValue = it
-                        // 拖动中：只更新预览状态，不写磁盘。
-                        // 节流到约 30fps —— 每帧都改会让所有半透明卡片与背景图重新合成，
-                        // 真机上 90 分位帧耗时会翻倍（实测 8.8% 的帧超过 32ms）。
-                        val now = android.os.SystemClock.uptimeMillis()
-                        if (now - lastPreviewAt >= PREVIEW_THROTTLE_MS) {
-                            lastPreviewAt = now
-                            cardOpacityPreview?.value = it
-                        }
-                    },
-                    onValueChangeFinished = {
-                        // 松手：先把最终值推给预览，再落盘
-                        cardOpacityPreview?.value = cardValue
-                        lastPreviewAt = android.os.SystemClock.uptimeMillis()
-                        onCardOpacityChange(cardValue)
-                        scope.launch {
-                            delay(350)
-                            cardOpacityPreview?.value = null
-                        }
-                    },
+                    onValueChange = { cardValue = it },
+                    onValueChangeFinished = { saveSoon { onCardOpacityChange(cardValue) } },
                     valueRange = ThemeSettings.MIN_CARD_OPACITY..1f,
                 )
             }
@@ -787,18 +781,7 @@ private fun BackgroundPreview(
     cardOpacity: Float,
     onPick: () -> Unit,
 ) {
-    val primary = MaterialTheme.colorScheme.primary
     val style = LocalThemeStyle.current
-    val background = MaterialTheme.colorScheme.background
-    val isDark = (0.299f * background.red + 0.587f * background.green + 0.114f * background.blue) < 0.5f
-    val clamped = visibility.coerceIn(0f, 1f)
-    val userScrim = if (scrim) (1f - clamped) * 0.92f else 0f
-    val scrimAlpha = if (isDark) {
-        maxOf(userScrim, 0.55f * (1f - clamped * 0.4f))
-    } else {
-        userScrim
-    }
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -809,6 +792,55 @@ private fun BackgroundPreview(
             .clickable(onClick = onPick),
         contentAlignment = Alignment.Center,
     ) {
+        PreviewBackdrop(uri = uri, visibility = visibility, blur = blur, scrim = scrim)
+        if (uri != null) {
+            // 示例卡单独抽出来：它的参数只有 cardOpacity，
+            // 拖卡片滑块时缩略图那张大图不会被牵动重组（后者才是掉帧的来源）
+            CardSample(
+                cardOpacity = cardOpacity,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(Spacing.sm),
+            )
+            VisibilityBadge(
+                visibility = visibility,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(Spacing.sm),
+            )
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Rounded.Image,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp),
+                )
+                Spacer(Modifier.height(Spacing.xs))
+                Text(
+                    text = "点这里选一张图",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+/** 缩略图本体：渐变底 + 图片 + 可见度/模糊/遮罩，只依赖这些参数。 */
+@Composable
+private fun PreviewBackdrop(uri: String?, visibility: Float, blur: Boolean, scrim: Boolean) {
+    val primary = MaterialTheme.colorScheme.primary
+    val background = MaterialTheme.colorScheme.background
+    val isDark = (0.299f * background.red + 0.587f * background.green + 0.114f * background.blue) < 0.5f
+    val clamped = visibility.coerceIn(0f, 1f)
+    val userScrim = if (scrim) (1f - clamped) * 0.92f else 0f
+    val scrimAlpha = if (isDark) {
+        maxOf(userScrim, 0.55f * (1f - clamped * 0.4f))
+    } else {
+        userScrim
+    }
+    Box(modifier = Modifier.fillMaxSize()) {
         // 主题渐变垫底：可见度低时露出的是它，与真实页面的表现一致
         Box(
             modifier = Modifier
@@ -837,67 +869,55 @@ private fun BackgroundPreview(
                     )
                     .drawWithScrim(scrimAlpha, background),
             )
-            // 示例卡片：直接叠在背景缩略图上，拖动「内容卡片不透明度」时它实时变透，
-            // 这样调参数不再是盲调（以前只有退出去看主界面才知道效果）。
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(Spacing.sm)
-                    .size(width = 156.dp, height = 58.dp)
-                    .graphicsLayer { alpha = cardOpacity.coerceIn(0.2f, 1f) }
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(
-                        width = 1.5.dp,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
-                        shape = RoundedCornerShape(16.dp),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "内容卡片",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = "${(cardOpacity * 100).roundToInt()}%",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            // 参数标签，调完一眼确认数值
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(Spacing.sm)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.35f))
-                    .padding(horizontal = Spacing.sm, vertical = 2.dp),
-            ) {
-                Text(
-                    text = "${(clamped * 100).roundToInt()}%",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White,
-                )
-            }
-        } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = Icons.Rounded.Image,
-                    contentDescription = null,
-                    tint = primary,
-                    modifier = Modifier.size(28.dp),
-                )
-                Spacer(Modifier.height(Spacing.xs))
-                Text(
-                    text = "点这里选一张图",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = primary,
-                )
-            }
         }
+    }
+}
+
+/** 叠在缩略图上的示例卡：拖动「内容卡片不透明度」时它实时变透。 */
+@Composable
+private fun CardSample(cardOpacity: Float, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(width = 156.dp, height = 58.dp)
+            .graphicsLayer { alpha = cardOpacity.coerceIn(0.2f, 1f) }
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                width = 1.5.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(16.dp),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "内容卡片",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "${(cardOpacity * 100).roundToInt()}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+/** 可见度角标。 */
+@Composable
+private fun VisibilityBadge(visibility: Float, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.35f))
+            .padding(horizontal = Spacing.sm, vertical = 2.dp),
+    ) {
+        Text(
+            text = "${(visibility.coerceIn(0f, 1f) * 100).roundToInt()}%",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White,
+        )
     }
 }
 
