@@ -42,19 +42,19 @@ class NodePathPolicyTest {
     )
 
     @Test
-    fun `支付宝付款成功页由节点文本直接命中`() {
+    fun `支付宝付款成功页不再识别`() {
+        // 本期只认账单详情页：支付结果页即使节点文本可读、金额清晰，也不入账。
         val result = releaseDetector.detect(
-            PageSnapshot(PaymentPageRules.ALIPAY_PACKAGE, alipayResultTexts),
+            PageSnapshot.ofTexts(PaymentPageRules.ALIPAY_PACKAGE, alipayResultTexts),
         )
-        assertTrue("期望命中，实际 $result", result is DetectionResult.Hit)
-        assertEquals(2550L, (result as DetectionResult.Hit).draft.amount.cents)
+        assertTrue("期望未命中，实际 $result", result is DetectionResult.Missed)
     }
 
     @Test
     fun `支付宝账单详情页在发布版同样命中`() {
         // 账单详情页是当前的主力目标：裸负金额必须被接受，且发布版与 debug 一致。
         val result = releaseDetector.detect(
-            PageSnapshot(PaymentPageRules.ALIPAY_PACKAGE, alipayBillTexts),
+            PageSnapshot.ofTexts(PaymentPageRules.ALIPAY_PACKAGE, alipayBillTexts),
         )
         assertTrue("期望命中，实际 $result", result is DetectionResult.Hit)
         assertEquals(2550L, (result as DetectionResult.Hit).draft.amount.cents)
@@ -65,7 +65,7 @@ class NodePathPolicyTest {
     fun `支付宝页面文本足以判定时不需要 OCR`() {
         // 这条对应 AutoRecognitionEngine.hasUsableNodeText 的阈值：
         // 行数 >= 3 或总字符数 >= 12 时，引擎直接返回，绝不创建截图任务。
-        val snapshot = PageSnapshot(PaymentPageRules.ALIPAY_PACKAGE, alipayResultTexts)
+        val snapshot = PageSnapshot.ofTexts(PaymentPageRules.ALIPAY_PACKAGE, alipayResultTexts)
         assertTrue(
             "支付宝结果页的行数应达到「够用」阈值",
             snapshot.texts.size >= MIN_USEFUL_NODE_LINES,
@@ -75,7 +75,7 @@ class NodePathPolicyTest {
     @Test
     fun `微信空节点才会落到 OCR`() {
         // 微信自绘页面读不到文本：行数与字符数都低于阈值，这时才值得付出截图 + OCR 成本。
-        val emptySnapshot = PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, emptyList())
+        val emptySnapshot = PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, emptyList())
         assertFalse(emptySnapshot.texts.size >= MIN_USEFUL_NODE_LINES)
         assertFalse(emptySnapshot.texts.sumOf { it.length } >= MIN_USEFUL_NODE_CHARS)
     }
@@ -83,7 +83,7 @@ class NodePathPolicyTest {
     @Test
     fun `装饰性节点不足以冒充可用文本`() {
         // 微信偶尔会暴露一两个装饰性节点，不能因为「有 1 行」就去判定或跳过 OCR
-        val decorative = PageSnapshot(
+        val decorative = PageSnapshot.ofTexts(
             PaymentPageRules.WECHAT_PACKAGE,
             listOf("返回"),
         )

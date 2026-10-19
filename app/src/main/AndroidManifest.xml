@@ -21,6 +21,22 @@
         android:name="android.permission.ACCESS_NETWORK_STATE"
         tools:node="remove" />
 
+    <!--
+      无障碍授权自愈用的受保护权限。
+
+      HyperOS 会在超级省电/清理后台/系统更新时把本服务从无障碍启用列表里移除，
+      用户看到的是「昨天还好好的今天不记账」。
+
+      这条权限**不会**由应用自己申请界面弹窗，只能由用户手动执行一条 adb 命令授予：
+          adb shell pm grant com.afu.ledger android.permission.WRITE_SECURE_SETTINGS
+      没授予时应用不做任何假装修复，只在设置页给出跳转入口与这条命令。
+
+      它只能改无障碍开关这类安全设置，不涉及网络、位置、通讯录。
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
     <!-- 前台服务用于降低 HyperOS 冻结进程的概率；不涉及任何网络能力 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -60,9 +76,18 @@
             android:multiprocess="false"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
+        <!--
+          关掉预测式返回（predictive back）的系统预览。
+
+          开着时，侧滑返回会让系统先把整个 Activity 缩成一个圆角卡片跟手移动，
+          同时 Compose Navigation 又播一遍自己的 popExit 位移动画，两者叠加的结果
+          就是「手势返回很生硬、点箭头返回却顺滑」。关掉后手势与点箭头走同一条路径，
+          动画完全由 NavHost 的 popExitTransition 控制。
+        -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:enableOnBackInvokedCallback="false">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

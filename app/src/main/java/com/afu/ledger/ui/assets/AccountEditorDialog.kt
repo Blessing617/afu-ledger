@@ -12,12 +12,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -33,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -49,7 +57,13 @@ private val accountColors = listOf(
     0xFF9575CD, 0xFFFF8A65, 0xFF8BC34A, 0xFFFFCA28,
 )
 
-/** 新增 / 编辑账户对话框。 */
+/**
+ * 新增 / 编辑账户对话框。
+ *
+ * 与「记一笔」是两种不同复杂度的操作：这里字段少、频率低，用居中对话框；
+ * 但视觉语言必须一致 —— 顶部先把「这个账户长什么样」预览出来（图标 + 颜色），
+ * 选图标选颜色时预览即时跟着变，而不是选完保存才知道。
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AccountEditorDialog(
@@ -78,12 +92,47 @@ fun AccountEditorDialog(
             onConfirm(name, type, balance, colorArgb, iconKey)
         }
     }
+    val accent = Color(colorArgb)
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existing == null) "新增账户" else "编辑账户") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(accent.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = categoryIcon(iconKey),
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                Spacer(Modifier.width(Spacing.md))
+                Column {
+                    Text(
+                        text = if (existing == null) "新增账户" else "编辑账户",
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    Text(
+                        text = name.ifBlank { "还没起名字" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -94,13 +143,33 @@ fun AccountEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
                     AccountType.entries.forEach { candidate ->
-                        FilterChip(
-                            selected = type == candidate,
-                            onClick = { type = candidate },
-                            label = { Text(accountTypeText(candidate)) },
-                        )
+                        val selected = type == candidate
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (selected) accent.copy(alpha = 0.16f) else Color.Transparent,
+                                )
+                                .border(
+                                    width = if (selected) 1.5.dp else 1.dp,
+                                    color = if (selected) accent else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                                .clickable { type = candidate }
+                                .padding(horizontal = Spacing.sm, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = accountTypeText(candidate),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
 
@@ -119,34 +188,63 @@ fun AccountEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                Text("颜色", style = MaterialTheme.typography.labelMedium)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Text(
+                    text = "颜色",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
                     accountColors.forEach { color ->
+                        val selected = color == colorArgb
                         Box(
                             modifier = Modifier
                                 .size(32.dp)
-                                .clip(CircleShape)
-                                .background(Color(color))
                                 .border(
-                                    width = if (color == colorArgb) 3.dp else 0.dp,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    width = if (selected) 2.dp else 0.dp,
+                                    color = if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
                                     shape = CircleShape,
                                 )
+                                .padding(2.dp)
+                                .clip(CircleShape)
+                                .background(Color(color))
                                 .clickable { colorArgb = color },
-                        )
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (selected) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
                     }
                 }
 
-                Text("图标", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    text = "图标",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     AvailableAccountIcons.forEach { key ->
+                        val selected = key == iconKey
                         Box(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    if (key == iconKey) Color(colorArgb).copy(alpha = 0.24f)
+                                    if (selected) accent.copy(alpha = 0.22f)
                                     else MaterialTheme.colorScheme.surfaceVariant,
+                                )
+                                .border(
+                                    width = if (selected) 2.dp else 0.dp,
+                                    color = if (selected) accent else Color.Transparent,
+                                    shape = CircleShape,
                                 )
                                 .clickable { iconKey = key },
                             contentAlignment = Alignment.Center,
@@ -154,15 +252,15 @@ fun AccountEditorDialog(
                             Icon(
                                 imageVector = categoryIcon(key),
                                 contentDescription = null,
-                                tint = if (key == iconKey) Color(colorArgb)
+                                tint = if (selected) accent
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
                 }
 
                 if (existing != null && onArchiveToggle != null) {
-                    Spacer(Modifier.height(Spacing.xs))
                     TextButton(onClick = { onArchiveToggle(!existing.archived) }) {
                         Text(if (existing.archived) "取消归档" else "归档此账户")
                     }
@@ -173,7 +271,17 @@ fun AccountEditorDialog(
             TextButton(
                 onClick = submit,
                 enabled = name.isNotBlank(),
-            ) { Text("保存") }
+            ) {
+                Text(
+                    text = "保存",
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (name.isNotBlank()) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    },
+                )
+            }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }

@@ -11,6 +11,7 @@ import com.afu.ledger.data.repository.AccountRepository
 import com.afu.ledger.data.repository.CategoryRepository
 import com.afu.ledger.data.repository.TransactionRepository
 import com.afu.ledger.domain.model.Money
+import com.afu.ledger.domain.model.TransType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -22,9 +23,12 @@ class RecordDetectedPaymentUseCaseTest {
 
     private val draft = PaymentDraft(
         amount = Money(2550),
+        direction = TransType.EXPENSE,
         merchant = "瑞幸咖啡",
         sourcePackage = PaymentPageRules.WECHAT_PACKAGE,
-        pageType = PaymentPageType.PAYMENT_RESULT,
+        pageType = PaymentPageType.BILL_DETAIL,
+        occurredAt = 1_700_000_000_000L,
+        occurredAtSource = TimeSource.PAGE,
         capturedAt = 1_000L,
     )
 
@@ -75,7 +79,8 @@ class RecordDetectedPaymentUseCaseTest {
         assertEquals(10L, saved.categoryId)
         assertEquals("EXPENSE", saved.type)
         assertEquals("瑞幸咖啡", saved.note)
-        assertEquals(1_000L, saved.occurredAt)
+        // 用账单时间（draft.occurredAt），不是识别时刻（capturedAt = 1_000L）
+        assertEquals(1_700_000_000_000L, saved.occurredAt)
     }
 
     @Test

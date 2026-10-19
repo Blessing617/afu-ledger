@@ -3,26 +3,30 @@ package com.afu.ledger.ui.settings
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Bolt
-import androidx.compose.material3.FilterChip
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Payments
+import androidx.compose.material.icons.rounded.ReceiptLong
+import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -31,17 +35,29 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.afu.ledger.auto.AutoLedgerSettings
 import com.afu.ledger.auto.OcrStatus
 import com.afu.ledger.auto.RecognitionEntry
 import com.afu.ledger.auto.keepalive.AutoLedgerKeepAlive
 import com.afu.ledger.auto.keepalive.BatteryWhitelist
-import com.afu.ledger.auto.keepalive.ShizukuGuard
 import com.afu.ledger.domain.model.Account
 import com.afu.ledger.domain.model.Category
 import com.afu.ledger.domain.model.Money
 import com.afu.ledger.ui.LocalTabVisible
+import com.afu.ledger.ui.component.HelpTip
+import com.afu.ledger.ui.component.IconChoiceRow
+import com.afu.ledger.ui.component.SettingDivider
+import com.afu.ledger.ui.component.SettingRow
+import com.afu.ledger.ui.component.SettingSwitchRow
+import com.afu.ledger.ui.component.accountIcon
+import com.afu.ledger.ui.component.categoryIcon
 import com.afu.ledger.ui.theme.Spacing
 import com.afu.ledger.util.MoneyFormatter
 import java.text.SimpleDateFormat
@@ -49,8 +65,18 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 
-/** 设置页的自动记账区块：开关、默认值、授权引导与识别日志。 */
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * 设置页的自动记账分组。
+ *
+ * ## 从「说明书」改成「开关 + 选择 + 帮助」
+ *
+ * 原先这个区块把所有解释（为什么划掉就失效、OCR 为什么只能截图）
+ * 全部常驻成小字，一屏下来几十行灰字，真正的开关被淹没。现在：
+ *
+ * - 开关与选择器占主位，一行一件事；
+ * - 解释性长文本收进「?」，点开才看；
+ * - 默认账户与默认分类用带图标的横条，和记账面板里的选择器同构。
+ */
 @Composable
 fun AutoLedgerSection(
     settings: AutoLedgerSettings,
@@ -66,170 +92,155 @@ fun AutoLedgerSection(
     onDefaultCategoryChange: (Long?) -> Unit,
     onRecognitionLogChange: (Boolean) -> Unit,
     onOcrEnabledChange: (Boolean) -> Unit,
+    onHideKeepAliveNotificationChange: (Boolean) -> Unit,
     onClearLog: () -> Unit,
 ) {
     val context = LocalContext.current
 
-    SectionCard(icon = Icons.Outlined.Bolt, title = "自动记账") {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "识别微信 / 支付宝支付结果页",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = "不联网，金额只在弹出确认并点「记一笔」后才会入账",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(checked = settings.enabled, onCheckedChange = onEnabledChange)
-        }
+    SettingSwitchRow(
+        icon = Icons.Rounded.Bolt,
+        title = "自动记账",
+        subtitle = "识别微信 / 支付宝支付结果页，确认后才入账",
+        checked = settings.enabled,
+        onCheckedChange = onEnabledChange,
+    )
+    SettingDivider()
 
-        Spacer(modifier = Modifier.height(Spacing.sm))
-        Text(
-            text = if (serviceEnabled) "无障碍服务：已开启" else "无障碍服务：未开启",
-            style = MaterialTheme.typography.labelMedium,
-            color = if (serviceEnabled) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.error
-            },
+    // 状态行：一行说清「能不能用」
+    val statusHealthy = serviceEnabled && keepAliveState.healthy
+    SettingRow(
+        icon = Icons.Rounded.Security,
+        title = if (serviceEnabled) "无障碍服务已开启" else "无障碍服务未开启",
+        subtitle = if (serviceEnabled) keepAliveState.text else "开启后才能识别支付页面",
+        iconTint = if (statusHealthy) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.error
+        },
+        onClick = if (serviceEnabled) null else {
+            { context.startActivity(accessibilitySettingsIntent()) }
+        },
+    )
+    SettingDivider()
+
+    // 授权与保活：全部收进「?」
+    Column(modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xs)) {
+        HelpTip(
+            title = if (serviceEnabled) "后台可靠性说明" else "如何开启服务",
+            text = autoLedgerHelpText(
+                serviceEnabled = serviceEnabled,
+                wasEverEnabled = wasEverEnabled,
+                keepAliveState = keepAliveState,
+            ),
         )
-
-        if (serviceEnabled) {
-            // 状态由 SettingsScreen 在 LazyColumn **之外**统一订阅后传进来。
-            //
-            // 官方 Compose 性能指南明确禁止在 lazy item 内部 collect 共享 Flow / 定时器：
-            // 那样每个可见 item 都会建立独立订阅，定时器一 tick 就同时让所有可见 item
-            // 失效重组，快速滚动时直接表现为掉帧。这里只接收已算好的值。
-            KeepAliveStatusLine(keepAliveState)
-        }
-
         if (!serviceEnabled) {
-            // 授权步骤（只在没开时出现）
-            KeepAliveSetupGuide(
+            KeepAliveActions(
                 wasEverEnabled = wasEverEnabled,
                 onOpenAccessibility = { context.startActivity(accessibilitySettingsIntent()) },
                 onOpenAppDetails = { context.startActivity(appDetailsIntent(context)) },
             )
+            if (!wasEverEnabled) {
+                Spacer(Modifier.height(Spacing.xs))
+            }
         } else {
-            // 已授权后，把「保活三件套」里剩下的两件也补齐 —— 这两件只需设置一次，
-            // 之后就再也不会被系统 force-stop，用不着反复回来点授权。
             KeepAliveHardening()
         }
+    }
 
-        if (accounts.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(Spacing.md))
-            Text(
-                text = "默认账户",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+    SettingDivider()
+
+    // 默认账户
+    if (accounts.isNotEmpty()) {
+        ChoiceBlock(
+            title = "默认账户",
+            subtitle = accounts.firstOrNull { it.id == settings.defaultAccountId }?.name ?: "未设置",
+            icon = Icons.Rounded.Payments,
+        ) {
+            IconChoiceRow(
+                items = accounts,
+                selectedId = settings.defaultAccountId,
+                idOf = { it.id },
+                labelOf = { it.name },
+                iconOf = { accountIcon(it.iconKey) },
+                colorOf = { Color(it.colorArgb) },
+                onSelect = { onDefaultAccountChange(it.id) },
             )
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-            ) {
-                accounts.forEach { account ->
-                    FilterChip(
-                        selected = account.id == settings.defaultAccountId,
-                        onClick = { onDefaultAccountChange(account.id) },
-                        label = { Text(account.name) },
-                    )
-                }
-            }
         }
+        SettingDivider()
+    }
 
-        if (categories.isNotEmpty()) {
-            Text(
-                text = "默认分类",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+    // 默认分类
+    if (categories.isNotEmpty()) {
+        ChoiceBlock(
+            title = "默认分类",
+            subtitle = categories.firstOrNull { it.id == settings.defaultCategoryId }?.name ?: "未设置",
+            icon = Icons.Rounded.ReceiptLong,
+        ) {
+            IconChoiceRow(
+                items = categories,
+                selectedId = settings.defaultCategoryId,
+                idOf = { it.id },
+                labelOf = { it.name },
+                iconOf = { categoryIcon(it.iconKey) },
+                colorOf = { Color(it.colorArgb) },
+                onSelect = { onDefaultCategoryChange(it.id) },
             )
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-            ) {
-                categories.forEach { category ->
-                    FilterChip(
-                        selected = category.id == settings.defaultCategoryId,
-                        onClick = { onDefaultCategoryChange(category.id) },
-                        label = { Text(category.name) },
-                    )
-                }
-            }
         }
+        SettingDivider()
+    }
 
-        Spacer(modifier = Modifier.height(Spacing.md))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "截图 OCR（微信兜底）",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = "微信不暴露无障碍节点，只能截屏后用本机离线 OCR 识别。" +
-                        "截图只存在内存里，识别完立即丢弃，不落盘、不上传。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(checked = settings.ocrEnabled, onCheckedChange = onOcrEnabledChange)
-        }
-
-        if (settings.ocrEnabled) {
-            val statusText = when {
-                !ocrStatus.available -> "OCR 状态：不可用${ocrStatus.reason?.let { "（$it）" }.orEmpty()}"
-                ocrStatus.lastOutcome != null -> "OCR 状态：可用 · 最近一次 ${ocrStatus.lastOutcome}"
-                else -> "OCR 状态：可用"
-            }
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (ocrStatus.available) {
+    SettingSwitchRow(
+        icon = Icons.Rounded.TextFields,
+        title = "截图 OCR 兜底",
+        subtitle = "微信不暴露无障碍节点时，截屏后本机识别",
+        checked = settings.ocrEnabled,
+        onCheckedChange = onOcrEnabledChange,
+    )
+    if (settings.ocrEnabled) {
+        Column(modifier = Modifier.padding(horizontal = Spacing.lg)) {
+            SettingRow(
+                icon = Icons.Rounded.Cloud,
+                title = when {
+                    !ocrStatus.available -> "OCR 不可用${ocrStatus.reason?.let { "（$it）" }.orEmpty()}"
+                    ocrStatus.lastOutcome != null -> "OCR 可用 · 最近 ${ocrStatus.lastOutcome}"
+                    else -> "OCR 可用"
+                },
+                subtitle = if (ocrStatus.lastElapsedMillis > 0) {
+                    "最近一次耗时 ${ocrStatus.lastElapsedMillis} ms"
+                } else {
+                    null
+                },
+                iconTint = if (ocrStatus.available) {
                     MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.error
                 },
+                onClick = null,
             )
-            if (ocrStatus.available && ocrStatus.lastElapsedMillis > 0) {
-                Text(
-                    text = "最近一次识别耗时 ${ocrStatus.lastElapsedMillis} ms",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            ocrStatus.lastDetail?.let { detail ->
-                Text(
-                    text = "分段：$detail",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(
-                text = "只在微信前台且页面稳定后截一次，内容变化至少间隔 8 秒，" +
+            HelpTip(
+                title = "OCR 与隐私",
+                text = "截图只存在内存里，识别完成立即丢弃，不落盘、不上传；" +
+                    "只在微信前台且页面稳定后截一次，内容变化至少间隔 8 秒，" +
                     "连续识别不到会自动退避到 60 秒。支付宝不截图。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+    SettingDivider()
 
-        Spacer(modifier = Modifier.height(Spacing.md))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "识别日志",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            Switch(checked = settings.recognitionLogEnabled, onCheckedChange = onRecognitionLogChange)
-        }
-
-        if (settings.recognitionLogEnabled) {
-            Text(
-                text = "只保留最近 ${RecognitionLogLineLimit} 条，进程结束即清空，不落盘。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    SettingSwitchRow(
+        icon = Icons.Rounded.Info,
+        title = "识别日志",
+        subtitle = "只保留最近 $RecognitionLogLineLimit 条，进程结束即清空",
+        checked = settings.recognitionLogEnabled,
+        onCheckedChange = onRecognitionLogChange,
+    )
+    if (settings.recognitionLogEnabled) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.lg, vertical = Spacing.xs),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
             if (logEntries.isEmpty()) {
                 Text(
                     text = "暂无记录",
@@ -244,7 +255,10 @@ fun AutoLedgerSection(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = onClearLog) { Text("清空日志") }
+                TextButton(
+                    onClick = onClearLog,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                ) { Text("清空日志") }
             }
         }
     }
@@ -252,48 +266,77 @@ fun AutoLedgerSection(
 
 private const val RecognitionLogLineLimit = 8
 
-/**
- * 授权引导。只在无障碍服务没开时出现。
- *
- * 两种「没开」要分开说，否则用户只会看到一句「未开启」而不知道发生了什么：
- *
- * - **从没开过** → 就是还没设置，引导去开
- * - **开过又没了** → 几乎一定是被系统撤销了。最常见的原因是把它从最近任务划掉
- *   （划掉 = force-stop，Android 会连带撤销无障碍权限，这是平台行为，应用层无法阻止）。
- *   这种情况下直接告诉用户原因，比让他莫名其妙地再点一遍要好。
- */
+/** 默认账户 / 默认分类的展示块：标题行 + 下方的图标选择条。 */
 @Composable
-private fun KeepAliveSetupGuide(
+private fun ChoiceBlock(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.width(20.dp),
+            )
+            Spacer(Modifier.width(Spacing.sm))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        content()
+    }
+}
+
+private fun autoLedgerHelpText(
+    serviceEnabled: Boolean,
+    wasEverEnabled: Boolean,
+    keepAliveState: KeepAliveUiState,
+): String {
+    val parts = mutableListOf<String>()
+    if (serviceEnabled) {
+        parts += "后台保护状态：${keepAliveState.text}。"
+    } else if (wasEverEnabled) {
+        parts += "你之前开启过，现在系统里已经没有它了。最常见的原因是把它从最近任务里划掉 —— " +
+            "划掉等于强制停止，Android 会连带撤销无障碍权限。"
+    } else {
+        parts += "开启路径：系统设置 → 无障碍 → 已下载的应用 → 阿福记账 → 打开。"
+    }
+    parts += "无障碍权限不会自己过期，它消失的唯一原因是被 force-stop。" +
+        "在小米 / Redmi 上，把应用从最近任务划掉就等于 force-stop，" +
+        "所以请把卡片向下拉锁定。"
+    parts += "小米 / Redmi 若提示「受限制的设置」，到应用信息右上角菜单里允许。"
+    return parts.joinToString("\n\n")
+}
+
+/** 未开启时的两个跳转按钮。 */
+@Composable
+private fun KeepAliveActions(
     wasEverEnabled: Boolean,
     onOpenAccessibility: () -> Unit,
     onOpenAppDetails: () -> Unit,
 ) {
-    if (wasEverEnabled) {
-        Text(
-            text = "自动记账被关闭了",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.error,
-        )
-        Text(
-            text = "你之前开启过，现在系统里已经没有它了。最常见的原因是把它从最近任务里" +
-                "划掉 —— 划掉等于强制停止，Android 会连带撤销无障碍权限。" +
-                "重新开启后，尽量别划掉它。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-
     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         TextButton(onClick = onOpenAccessibility) {
             Text(if (wasEverEnabled) "重新开启无障碍服务" else "去开启无障碍服务")
         }
         TextButton(onClick = onOpenAppDetails) { Text("应用信息") }
     }
-    Text(
-        text = "小米 / Redmi：若被提示「受限制的设置」，到应用信息右上角菜单里允许。",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 /**
@@ -312,6 +355,7 @@ private fun KeepAliveSetupGuide(
  * 真正的解法是小米官方的「锁定任务」：最近任务里把卡片**往下拉**，
  * 出现锁图标即锁定，之后一键清理也不会杀掉它。这一步是系统 UI 动作，
  * 应用层无法代劳，只能把路径讲到足够具体。
+ *
  * 电池优化豁免与自启动在这里一并兜住。
  */
 @Composable
@@ -332,145 +376,67 @@ private fun KeepAliveHardening() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    Spacer(modifier = Modifier.height(Spacing.md))
-    Text(
-        text = "保持后台运行（只需设置一次）",
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    // 第 1 条最容易被忽略、也最关键：不锁定就可能被划掉
-    Text(
-        text = "① 锁定任务：打开最近任务，把本应用的卡片往下拉，出现锁图标即锁定。" +
-            "不锁定的话，从这里划掉应用等于强制停止，无障碍权限会被系统一并撤销。",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-
-    if (ignoringBattery) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
         Text(
-            text = "② 后台运行：已允许",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
+            text = "保持后台运行（只需设置一次）",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
         )
-    } else {
         Text(
-            text = "② 允许后台运行，避免系统按省电策略停掉本应用。",
+            text = "① 锁定任务：最近任务里把本应用卡片往下拉，出现锁图标即锁定。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            TextButton(
-                onClick = {
-                    // 先用系统标准申请；被 ROM 屏蔽时退回到电池优化列表页
-                    if (!BatteryWhitelist.requestIgnore(context)) {
-                        runCatching {
-                            context.startActivity(BatteryWhitelist.batteryOptimizationSettingsIntent())
-                        }
-                    }
-                },
-            ) { Text("允许后台运行") }
-            TextButton(
-                onClick = {
-                    // 依次尝试已知的小米自启页；全都打不开就退到应用信息
-                    val opened = BatteryWhitelist.miuiAutoStartIntents().any { intent ->
-                        runCatching { context.startActivity(intent) }.isSuccess
-                    }
-                    if (!opened) {
-                        runCatching { context.startActivity(appDetailsIntent(context)) }
-                    }
-                },
-            ) { Text("设置自启动") }
-        }
-    }
-    ShizukuSection()
-}
-
-/**
- * Shizuku 自动恢复。
- *
- * 这是「划掉也不影响」的关键：系统撤销无障碍权限后，
- * 靠 Shizuku 的 shell 权限周期性把服务写回去（与 Tally 同款做法）。
- *
- * 没装 Shizuku 时这里只显示说明，不阻塞其它功能。
- */
-@Composable
-private fun ShizukuSection() {
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var state by remember { mutableStateOf(shizukuState()) }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) state = shizukuState()
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    Spacer(modifier = Modifier.height(Spacing.sm))
-    when (state) {
-        ShizukuUiState.UNAVAILABLE -> Text(
-            text = "③ 可选：装 Shizuku 并授权后，应用被划掉也能自动恢复服务；" +
-                "否则需要你手动重新开启一次无障碍。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        ShizukuUiState.NO_PERMISSION -> {
+        if (ignoringBattery) {
             Text(
-                text = "③ 已检测到 Shizuku，授权后可在应用被划掉时自动恢复服务。",
+                text = "② 后台运行：已允许",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        } else {
+            Text(
+                text = "② 允许后台运行，避免系统按省电策略停掉本应用。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            TextButton(onClick = { ShizukuGuard.requestPermission(SHIZUKU_REQUEST_CODE) }) {
-                Text("授权 Shizuku 自动恢复")
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                TextButton(
+                    onClick = {
+                        // 先用系统标准申请；被 ROM 屏蔽时退回到电池优化列表页
+                        if (!BatteryWhitelist.requestIgnore(context)) {
+                            runCatching {
+                                context.startActivity(BatteryWhitelist.batteryOptimizationSettingsIntent())
+                            }
+                        }
+                    },
+                ) { Text("允许后台运行") }
+                TextButton(
+                    onClick = {
+                        // 依次尝试已知的小米自启页；全都打不开就退到应用信息
+                        val opened = BatteryWhitelist.miuiAutoStartIntents().any { intent ->
+                            runCatching { context.startActivity(intent) }.isSuccess
+                        }
+                        if (!opened) {
+                            runCatching { context.startActivity(appDetailsIntent(context)) }
+                        }
+                    },
+                ) { Text("设置自启动") }
             }
         }
-
-        ShizukuUiState.READY -> Text(
-            text = "③ 自动恢复：已启用（每 15 分钟巡检一次）",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        NotificationPermissionHint()
     }
 }
 
-private enum class ShizukuUiState { UNAVAILABLE, NO_PERMISSION, READY }
-
-private fun shizukuState(): ShizukuUiState = when {
-    !ShizukuGuard.isAvailable() -> ShizukuUiState.UNAVAILABLE
-    !ShizukuGuard.hasPermission() -> ShizukuUiState.NO_PERMISSION
-    else -> ShizukuUiState.READY
-}
-
-private const val SHIZUKU_REQUEST_CODE = 4001
 
 /** 后台可靠性状态的展示模型。 */
 data class KeepAliveUiState(val text: String, val healthy: Boolean)
-
-/**
- * 后台可靠性状态行。纯展示，不持有定时器。
- *
- * 定时器在 [rememberKeepAliveState]（由 SettingsScreen 在 LazyColumn 之外调用），
- * 原因见官方性能指南的「不要在 lazy item 里 collect 共享 Flow」。
- */
-@Composable
-private fun KeepAliveStatusLine(state: KeepAliveUiState) {
-    val context = LocalContext.current
-    Text(
-        text = state.text,
-        style = MaterialTheme.typography.labelMedium,
-        color = if (state.healthy) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.error
-        },
-    )
-    if (!state.healthy) {
-        TextButton(onClick = { context.startActivity(accessibilitySettingsIntent()) }) {
-            Text("去重新开启无障碍服务")
-        }
-    }
-    NotificationPermissionHint()
-}
 
 /**
  * 通知权限被关时给出降级说明。
@@ -505,8 +471,7 @@ private fun NotificationPermissionHint() {
     if (granted) return
 
     Text(
-        text = "提示：通知权限已关闭。自动记账本身仍可用，但服务失效时你不会收到提醒，" +
-            "会以为它一直在工作。建议到应用信息里允许通知。",
+        text = "提示：通知权限已关闭。自动记账仍可用，但服务失效时你不会收到提醒。",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.error,
     )
@@ -542,7 +507,7 @@ private fun computeKeepAliveState(): KeepAliveUiState {
     return when {
         since < 0L -> KeepAliveUiState("后台保护已开启 · 本次启动后还没有收到页面事件", true)
         since > AutoLedgerKeepAlive.SUSPECT_FROZEN_AFTER_MS ->
-            KeepAliveUiState("疑似被系统冻结 · 最近事件在 ${since / 60_000} 分钟前，建议重新开启一次无障碍", false)
+            KeepAliveUiState("疑似被系统冻结 · 最近事件在 ${since / 60_000} 分钟前", false)
         else -> KeepAliveUiState("后台保护已开启 · 最近事件在 ${since / 1_000} 秒前", true)
     }
 }

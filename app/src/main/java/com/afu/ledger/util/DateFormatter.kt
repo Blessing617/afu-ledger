@@ -38,4 +38,17 @@ object DateFormatter {
             else -> if (date.year == today.year) monthDayFormat.format(date) else fullFormat.format(date)
         }
     }
+
+    private val clockFormat = DateTimeFormatter.ofPattern("HH:mm")
+
+    /**
+     * 账单时间标签，例 `2026-10-18 20:10`。
+     *
+     * 故意用绝对日期而不是「今天/昨天」：确认卡片要让人一眼判断「这是不是昨天那笔」，
+     * 相对说法在跨零点时反而更难核对。
+     */
+    fun billTimeLabel(millis: Long): String {
+        val zoned = Instant.ofEpochMilli(millis).atZone(zone())
+        return "${dayFormat.format(zoned.toLocalDate())} ${clockFormat.format(zoned)}"
+    }
 }

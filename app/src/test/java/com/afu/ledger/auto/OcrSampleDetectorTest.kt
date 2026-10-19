@@ -68,17 +68,17 @@ class OcrSampleDetectorTest {
     @Test
     fun `真实 OCR 文本在支付成功页命中`() {
         val draft = hit(
-            releaseDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, successPageTexts)),
+            releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, successPageTexts)),
         )
         assertEquals(Money(2550), draft.amount)
         assertEquals("瑞幸咖啡", draft.merchant)
-        assertEquals(PaymentPageType.PAYMENT_RESULT, draft.pageType)
+        assertEquals(PaymentPageType.BILL_DETAIL, draft.pageType)
     }
 
     @Test
     fun `真实 OCR 文本在账单详情页命中`() {
         val draft = hit(
-            debugDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, billPageTexts)),
+            debugDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, billPageTexts)),
         )
         assertEquals(Money(4200), draft.amount)
         assertEquals(PaymentPageType.BILL_DETAIL, draft.pageType)
@@ -88,7 +88,7 @@ class OcrSampleDetectorTest {
     fun `真实 OCR 文本在账单详情页命中（发布版）`() {
         // 账单页是当前的主力识别目标，发布版与 debug 版必须一致。
         val draft = hit(
-            releaseDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, billPageTexts)),
+            releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, billPageTexts)),
         )
         assertEquals(Money(4200), draft.amount)
         assertEquals(PaymentPageType.BILL_DETAIL, draft.pageType)
@@ -101,7 +101,7 @@ class OcrSampleDetectorTest {
             MissReason.NOT_PAYMENT_PAGE,
             miss(
                 releaseDetector.detect(
-                    PageSnapshot(
+                    PageSnapshot.ofTexts(
                         PaymentPageRules.WECHAT_PACKAGE,
                         listOf("微信", "文件传输助手", "今天 12:30", "¥25.50", "在吗"),
                     ),
@@ -116,9 +116,9 @@ class OcrSampleDetectorTest {
             MissReason.AMBIGUOUS_AMOUNT,
             miss(
                 releaseDetector.detect(
-                    PageSnapshot(
+                    PageSnapshot.ofTexts(
                         PaymentPageRules.WECHAT_PACKAGE,
-                        successPageTexts + "优惠 ¥3.00",
+                        successPageTexts + "¥3.00",
                     ),
                 ),
             ),
@@ -128,7 +128,7 @@ class OcrSampleDetectorTest {
     @Test
     fun `商家名里的字母不会被纠错污染后再影响判定`() {
         val texts = successPageTexts + "COCO都可"
-        val draft = hit(releaseDetector.detect(PageSnapshot(PaymentPageRules.WECHAT_PACKAGE, texts)))
+        val draft = hit(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts)))
         assertEquals(Money(2550), draft.amount)
     }
 }

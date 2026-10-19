@@ -27,6 +27,9 @@ class ThemePreferences(
         }
         .map { prefs ->
             ThemeSettings(
+                themeStyleId = prefs[KEY_THEME_STYLE]
+                    ?.takeIf { raw -> raw.isNotBlank() }
+                    ?: ThemeSettings.DEFAULT_STYLE_ID,
                 themeColorId = prefs[KEY_THEME_COLOR] ?: ThemeSettings.DEFAULT_COLOR_ID,
                 darkMode = prefs[KEY_DARK_MODE]
                     ?.let { raw -> runCatching { DarkModeSetting.valueOf(raw) }.getOrNull() }
@@ -41,6 +44,10 @@ class ThemePreferences(
                     .coerceIn(ThemeSettings.MIN_CARD_OPACITY, 1f),
             )
         }
+
+    suspend fun setThemeStyle(styleId: String) {
+        context.themeDataStore.edit { it[KEY_THEME_STYLE] = styleId }
+    }
 
     suspend fun setThemeColor(colorId: String) {
         context.themeDataStore.edit { it[KEY_THEME_COLOR] = colorId }
@@ -85,6 +92,7 @@ class ThemePreferences(
     }
 
     private companion object {
+        val KEY_THEME_STYLE = stringPreferencesKey("theme_style_id")
         val KEY_THEME_COLOR = stringPreferencesKey("theme_color_id")
         val KEY_DARK_MODE = stringPreferencesKey("dark_mode")
         val KEY_BACKGROUND_URI = stringPreferencesKey("background_uri")

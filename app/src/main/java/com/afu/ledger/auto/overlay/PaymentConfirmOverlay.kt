@@ -71,7 +71,13 @@ class PaymentConfirmOverlay(
         }
     }
 
-    fun show(content: @Composable () -> Unit, onFirstFrame: (Long) -> Unit = {}) {
+    /**
+     * 显示卡片。返回是否真的显示出来了。
+     *
+     * 返回 false 的典型原因是系统对支付类应用禁止悬浮窗（钱迹/iCost 的 FAQ 都提到过）。
+     * 调用方必须据此走「待确认账单」的兜底通道，而不是当作已经通知过用户。
+     */
+    fun show(content: @Composable () -> Unit, onFirstFrame: (Long) -> Unit = {}): Boolean {
         val startedAt = SystemClock.uptimeMillis()
 
         if (composeView == null) {
@@ -79,12 +85,12 @@ class PaymentConfirmOverlay(
             warmUp()
             if (composeView == null) {
                 Log.e(TAG, "show 失败：无法创建窗口")
-                return
+                return false
             }
         }
 
-        val view = composeView ?: return
-        val params = layoutParams ?: return
+        val view = composeView ?: return false
+        val params = layoutParams ?: return false
 
         contentState.value = content
         params.width = WindowManager.LayoutParams.MATCH_PARENT
@@ -93,8 +99,10 @@ class PaymentConfirmOverlay(
         params.y = BOTTOM_MARGIN_PX
         params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
 
-        runCatching { windowManager.updateViewLayout(view, params) }
+        val updated = runCatching { windowManager.updateViewLayout(view, params) }
             .onFailure { Log.e(TAG, "updateViewLayout 失败: ${it.message}", it) }
+            .isSuccess
+        if (!updated) return false
 
         showing = true
         view.post {
@@ -102,6 +110,7 @@ class PaymentConfirmOverlay(
             Log.d(TAG, "可见 attach=${view.isAttachedToWindow} size=${view.width}x${view.height} 首帧=${elapsed}ms")
             onFirstFrame(elapsed)
         }
+        return true
     }
 
     /** 隐藏内容但保留预热窗口，下次弹出仍然快。 */

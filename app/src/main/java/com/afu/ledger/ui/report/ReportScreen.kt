@@ -11,15 +11,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.ChevronLeft
-import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,7 +59,9 @@ fun ReportScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+            .navigationBarsPadding(),
     ) {
         ReportTopBar(onBack = onBack)
 
@@ -111,7 +115,7 @@ private fun ReportTopBar(onBack: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBack) {
-            Icon(Icons.Outlined.ArrowBack, contentDescription = "返回")
+            Icon(Icons.Rounded.ArrowBack, contentDescription = "返回")
         }
         Text(
             text = "收支报表",
@@ -136,7 +140,7 @@ private fun MonthSwitcher(
         horizontalArrangement = Arrangement.Center,
     ) {
         IconButton(onClick = onPrevious) {
-            Icon(Icons.Outlined.ChevronLeft, contentDescription = "上个月")
+            Icon(Icons.Rounded.ChevronLeft, contentDescription = "上个月")
         }
         Text(
             text = "${yearMonth.year} 年 ${yearMonth.monthValue} 月",
@@ -146,7 +150,7 @@ private fun MonthSwitcher(
         )
         IconButton(onClick = onNext, enabled = canGoNext) {
             Icon(
-                Icons.Outlined.ChevronRight,
+                Icons.Rounded.ChevronRight,
                 contentDescription = "下个月",
                 tint = if (canGoNext) {
                     MaterialTheme.colorScheme.onSurface

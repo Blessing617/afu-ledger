@@ -14,8 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ChevronLeft
-import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.theme.Spacing
 import java.time.LocalDate
 import java.time.YearMonth
@@ -62,12 +63,9 @@ fun CalendarStrip(
 ) {
     val primary = MaterialTheme.colorScheme.primary
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.86f))
-            .padding(horizontal = Spacing.md, vertical = Spacing.md),
+    AfuCard(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(Spacing.md),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -88,13 +86,13 @@ fun CalendarStrip(
                 onClick = { onMonthChange(yearMonth.minusMonths(1)) },
                 modifier = Modifier.size(32.dp),
             ) {
-                Icon(Icons.Outlined.ChevronLeft, contentDescription = "上一月", modifier = Modifier.size(18.dp))
+                Icon(Icons.Rounded.ChevronLeft, contentDescription = "上一月", modifier = Modifier.size(18.dp))
             }
             IconButton(
                 onClick = { onMonthChange(yearMonth.plusMonths(1)) },
                 modifier = Modifier.size(32.dp),
             ) {
-                Icon(Icons.Outlined.ChevronRight, contentDescription = "下一月", modifier = Modifier.size(18.dp))
+                Icon(Icons.Rounded.ChevronRight, contentDescription = "下一月", modifier = Modifier.size(18.dp))
             }
         }
 

@@ -1,5 +1,7 @@
 package com.afu.ledger.auto.ocr
 
+import com.afu.ledger.auto.PageText
+
 /**
  * 把 OCR 的框结果整理成「自上而下的文本行」。
  *
@@ -18,7 +20,19 @@ object OcrLineBuilder {
     /** 同一行内允许的最大水平间隙（按行高倍数计）。超过就当成两块内容，不硬拼。 */
     private const val MAX_GAP_RATIO = 2.0f
 
-    fun build(lines: List<OcrLine>, minConfidence: Float = MIN_CONFIDENCE): List<String> {
+    fun build(lines: List<OcrLine>, minConfidence: Float = MIN_CONFIDENCE): List<String> =
+        buildWithBounds(lines, minConfidence).map { it.text }
+
+    /**
+     * 与 [build] 相同，但保留每行的位置（取该行最上面那块的上沿）。
+     *
+     * 位置用于与节点通道共用同一套「按视觉行分组」逻辑：OCR 的行本身已经是
+     * 「标签 值」拼好的一段文本，所以把它们当成「单元素的视觉行」处理即可。
+     */
+    fun buildWithBounds(
+        lines: List<OcrLine>,
+        minConfidence: Float = MIN_CONFIDENCE,
+    ): List<PageText> {
         val usable = lines
             .filter { it.text.isNotBlank() && it.confidence >= minConfidence }
             .sortedWith(compareBy({ it.top }, { it.left }))
@@ -32,10 +46,13 @@ object OcrLineBuilder {
         }
 
         return rows.mapNotNull { row ->
-            row.sortedBy { it.left }
-                .joinToString(separator = " ") { it.text.trim() }
-                .trim()
-                .takeIf { it.isNotEmpty() }
+            val sorted = row.sortedBy { it.left }
+            val text = sorted.joinToString(separator = " ") { it.text.trim() }.trim()
+            if (text.isEmpty()) {
+                null
+            } else {
+                PageText(text = text, top = sorted.first().top, left = sorted.first().left)
+            }
         }
     }
 

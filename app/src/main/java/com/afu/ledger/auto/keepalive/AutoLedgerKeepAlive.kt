@@ -178,6 +178,76 @@ object AutoLedgerKeepAlive {
             .build()
     }
 
+    // ---------------------------------------------------------------
+    // 待确认账单的通知（弹窗被系统拦截时的兜底）
+    // ---------------------------------------------------------------
+
+    const val PENDING_NOTIFICATION_ID: Int = 3003
+
+    private const val PENDING_CHANNEL_ID = "auto_ledger_pending"
+
+    /**
+     * 系统拦截悬浮窗时，用它告诉用户「有这么一笔待确认」。
+     *
+     * 通道用 DEFAULT 重要性但**静音**：这条必须能被看见（否则用户永远不知道漏了账），
+     * 但不该像来电一样吵人 —— 点进去就是本应用的待确认列表。
+     */
+    fun showPendingNotification(context: Context, count: Int) {
+        if (count <= 0) {
+            clearPendingNotification(context)
+            return
+        }
+        ensurePendingChannel(context)
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val contentIntent = PendingIntent.getActivity(
+            context,
+            PENDING_NOTIFICATION_ID,
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val text = "有 $count 笔账单没弹出来，点这里补记"
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(context, PENDING_CHANNEL_ID)
+        } else {
+            Notification.Builder(context)
+        }
+        val notification = builder
+            .setSmallIcon(R.drawable.ic_stat_auto_ledger)
+            .setContentTitle("$count 笔待确认账单")
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setContentIntent(contentIntent)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_REMINDER)
+            .setPriority(Notification.PRIORITY_DEFAULT)
+            .build()
+        runCatching { manager.notify(PENDING_NOTIFICATION_ID, notification) }
+    }
+
+    fun clearPendingNotification(context: Context) {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        runCatching { manager.cancel(PENDING_NOTIFICATION_ID) }
+    }
+
+    private fun ensurePendingChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        if (manager.getNotificationChannel(PENDING_CHANNEL_ID) != null) return
+        val channel = NotificationChannel(
+            PENDING_CHANNEL_ID,
+            "待确认账单",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "系统拦截悬浮窗时，用它提醒你还有账单没确认"
+            setShowBadge(true)
+            setSound(null, null)
+            enableVibration(false)
+        }
+        manager.createNotificationChannel(channel)
+    }
+
     /** 显示 / 清除失效告警。幂等。 */
     fun showRevokedNotification(context: Context, frozenInsteadOfRevoked: Boolean) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return

@@ -2,7 +2,10 @@ package com.afu.ledger.auto
 
 import android.accessibilityservice.AccessibilityService
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
@@ -62,8 +65,32 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
     private var overlay: PaymentConfirmOverlay? = null
     private var confirmController: PaymentConfirmController? = null
     private var logger: AutoLedgerLogger? = null
-    private var pendingJob: Job? = null
     private var ocrEngine: OcrEngine? = null
+
+    /** 主线程调度器：去抖用它，避免每个事件都创建协程。 */
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** 复用的去抖 Runnable，全服务只有一个实例，事件再多也不分配新对象。 */
+    private val pendingInspect = Runnable { runInspect() }
+
+    /** 待判定的目标包与事件类型，由事件回调就地覆盖。 */
+    private var pendingPackage: String? = null
+    private var pendingKind: ScreenshotThrottle.EventKind = ScreenshotThrottle.EventKind.CONTENT_CHANGED
+
+    /**
+     * 屏幕是否点亮（缓存）。
+     *
+     * 事件回调里不能每次都去 IPC 问 PowerManager —— 那就是耗电本身。
+     * 用一次注册的屏幕状态广播维护这个标志，息屏时直接短路，整条链路零开销。
+     */
+    @Volatile
+    private var screenOn: Boolean = true
+
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            screenOn = intent?.action == Intent.ACTION_SCREEN_ON
+        }
+    }
 
     @Volatile
     private var engine: AutoRecognitionEngine? = null
@@ -136,17 +163,55 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
                 settings = current
                 if (current.ocrEnabled && !ocrWasEnabled) ensureOcrChannel(app.container)
                 ocrWasEnabled = current.ocrEnabled
+                // 常驻通知开关一变就跟着启停前台服务：用户嫌通知碍事可以关掉，
+                // 代价是进程优先级下降（设置页如实写明）。
+                applyKeepAliveForeground(current.enabled && !current.hideKeepAliveNotification)
             }
         }
         scope.launch {
             app.container.themePreferences.settings.collect { themeSettings = it }
         }
 
-        // HyperOS 会冻结长期后台的进程；前台服务把进程优先级抬出 cached 区间
-        startKeepAlive()
+        // 前台服务的启停交给上面的 settings.collect —— 它一订阅就会收到当前值，
+        // 避免这里先用默认值（enabled=false）做一次错误判断。
+
+        // 屏幕状态缓存：用广播维护，避免在事件回调里反复 IPC 查询
+        screenOn = runCatching {
+            getSystemService(PowerManager::class.java)?.isInteractive ?: true
+        }.getOrDefault(true)
+        runCatching {
+            registerReceiver(
+                screenStateReceiver,
+                IntentFilter().apply {
+                    addAction(Intent.ACTION_SCREEN_ON)
+                    addAction(Intent.ACTION_SCREEN_OFF)
+                },
+            )
+        }.onFailure { Log.w(TAG, "屏幕状态广播注册失败: ${it.message}") }
     }
 
-    private fun startKeepAlive() {
+    /** 前台服务当前是否在跑；用于幂等地跟着设置变化启停。 */
+    @Volatile
+    private var keepAliveForegroundRunning = false
+
+    /**
+     * 按设置启动或停止前台服务。
+     *
+     * HyperOS 会冻结长期后台的进程；前台服务把进程优先级抬出 cached 区间，
+     * 是保活的主力。但常驻通知会占着通知栏，所以给用户一个开关 ——
+     * 关掉后进程优先级下降，被冻结的概率变高，这一点设置页会写明。
+     */
+    private fun applyKeepAliveForeground(shouldRun: Boolean) {
+        if (shouldRun == keepAliveForegroundRunning) return
+
+        if (!shouldRun) {
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            keepAliveForegroundRunning = false
+            AutoLedgerKeepAlive.markForegroundRunning(false)
+            Log.d(TAG, "keepAlive foreground stopped by setting")
+            return
+        }
+
         AutoLedgerKeepAlive.ensureChannel(this)
         val notification = AutoLedgerKeepAlive.buildNotification(this)
         val result = runCatching {
@@ -160,6 +225,8 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
                 startForeground(AutoLedgerKeepAlive.NOTIFICATION_ID, notification)
             }
         }.onFailure { Log.e(TAG, "startForeground 失败: ${it.message}", it) }
+
+        keepAliveForegroundRunning = result.isSuccess
         AutoLedgerKeepAlive.markForegroundRunning(result.isSuccess)
         Log.d(TAG, "keepAlive foreground=${result.isSuccess}")
     }
@@ -179,6 +246,14 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         debugLog("event pkg=$packageName enabled=${settings.enabled} type=${event.eventType}")
         if (!settings.enabled) return
         if (!isSupportedPackage(packageName)) return
+
+        // 息屏 / 锁屏时整条链路短路：不截图、不 OCR、不碰数据库。
+        // 这里只读一个 volatile 字段，不做任何 IPC。
+        if (!screenOn) return
+
+        // 自家悬浮窗在渲染/动画时会持续产生内容变化事件。卡片显示期间把它们全部丢掉，
+        // 否则每次都要白截一张图做 OCR（只有 debug 版白名单含自家包名才会走到这里）。
+        if (packageName == this.packageName && confirmController?.isShowing == true) return
 
         // OCR 初始化失败后要能自愈：ML Kit 首次加载在低内存时可能失败，
         // 之前失败一次就永久「不可用」，只能靠用户手动关开开关 —— 真机上那就是「OCR 状态不可用」。
@@ -205,10 +280,14 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         // 点击带来的「换页」就被后面的内容事件冲掉了，结果又被 8 秒节流拦下（实测踩过）。
         if (clicked || classChanged) {
             pageChangePending = true
-            // 用户点了东西：上一页的确认卡片已经没有意义，先收起再判定。
-            // 不跟 classChanged 走：微信页面渲染过程中 className 会反复变化，
-            // 按它收起会让卡片刚弹出就被自己关掉（实测表现为「卡片闪一下就没」）。
-            if (clicked) confirmController?.onPageChanged()
+            // **不再「有点击就收起卡片」。**
+            //
+            // 原意是「用户点了东西，上一页的卡片没意义」，但真机实测微信账单页会
+            // 自己产生合成点击（WebView 加载收尾、页面内动效），卡片刚弹出就被关掉，
+            // 紧接着又被下一次识别重新弹出 —— 表现出来就是卡片闪、识别看起来「乱」。
+            //
+            // 「已离开这个应用」由 onWindowPackageChanged 负责，
+            // 「返回列表」由卡片 20 秒超时兜底，都不依赖点击这个不可靠信号。
         }
 
         // 页面渲染往往连续触发多个事件，合并到一次识别；这同时是「页面已稳定」的判定。
@@ -232,19 +311,33 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
             return
         }
 
-        pendingJob?.cancel()
-        pendingJob = scope.launch {
-            delay(debounceMillis)
-            val pageChanged = pageChangePending
-            pageChangePending = false
-            inspect(packageName, kind, pageChanged)
-        }
+        // 去抖：**不在这里创建协程**。
+        //
+        // 旧实现是 `pendingJob?.cancel()` + `scope.launch { }`，微信/支付宝里滚动时
+        // 每秒几十个事件就是几十次协程创建与取消 —— 这是发热的直接来源。
+        // 改成「覆盖待判定参数 + 重置一个复用 Runnable 的延时」，
+        // 事件再密也只是两次 Handler 调用，零对象分配。
+        pendingPackage = packageName
+        pendingKind = kind
+        mainHandler.removeCallbacks(pendingInspect)
+        mainHandler.postDelayed(pendingInspect, debounceMillis)
+    }
+
+    /** 去抖到期：真正开始一次识别。此时才创建协程（每秒至多一两次）。 */
+    private fun runInspect() {
+        val packageName = pendingPackage ?: return
+        val pageChanged = pageChangePending
+        pageChangePending = false
+        val kind = pendingKind
+        val pageChangedFlag = pageChanged
+        scope.launch { inspect(packageName, kind, pageChangedFlag) }
     }
 
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
-        pendingJob?.cancel()
+        mainHandler.removeCallbacks(pendingInspect)
+        runCatching { unregisterReceiver(screenStateReceiver) }
         confirmController?.release()
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         AutoLedgerKeepAlive.markForegroundRunning(false)
@@ -253,13 +346,26 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
+    /**
+     * 只认微信与支付宝，**debug 构建也一样**。
+     *
+     * 曾经为了在没装微信的机器上验证链路，debug 版放行了自家包名。
+     * 真机上代价很实在：本应用自己的 Compose 界面会持续产生无障碍事件，
+     * 这些事件被当成「待识别的页面」，截全屏做 OCR、还把自家包名写进了指纹
+     * （`com.afu.ledger|单号`）—— 待确认账单和去重记录全被污染。
+     *
+     * 真机上有微信和支付宝，模拟页没有存在价值；detector 层的 debug 放行
+     * 仍然保留给单元测试用，但运行时不再走这条路。
+     */
     private fun isSupportedPackage(packageName: String): Boolean =
-        packageName in PaymentPageRules.supportedPackages ||
-            (BuildConfig.DEBUG && packageName == this.packageName)
+        packageName in PaymentPageRules.supportedPackages
 
-    /** debug 构建下允许自家模拟页走 OCR 通道，发布版为 null。 */
+    /**
+     * 恒为 null：不再允许自家包名走 OCR 通道（理由见 [isSupportedPackage]）。
+     * 保留这个参数是为了让 [AutoRecognitionEngine] 的签名与测试保持一致。
+     */
     private val debugOcrPackage: String?
-        get() = if (BuildConfig.DEBUG) this.packageName else null
+        get() = null
 
     private suspend fun inspect(
         packageName: String,

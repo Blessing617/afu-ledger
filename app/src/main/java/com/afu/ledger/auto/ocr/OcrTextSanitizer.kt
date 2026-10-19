@@ -1,5 +1,7 @@
 package com.afu.ledger.auto.ocr
 
+import com.afu.ledger.auto.PageText
+
 /**
  * OCR 文本的字符级纠错，纯 Kotlin。
  *
@@ -33,6 +35,18 @@ object OcrTextSanitizer {
             val char = chars[index]
             if (char.isDigit()) continue
 
+            // 负号被 OCR 读成横线类字符：真机实测微信账单金额「-23.90」被读成「一23.90」。
+            // 只有当它**紧跟数字且前面不是数字**时才当作负号 ——
+            // 「一元」「一起」「一共」里的「一」后面是汉字，不会被误替换。
+            if (char == '一' || char == '—' || char == '–' || char == '－') {
+                val nextDigit = chars.getOrNull(index + 1)?.isDigit() == true
+                val prevDigit = chars.getOrNull(index - 1)?.isDigit() == true
+                if (nextDigit && !prevDigit) {
+                    chars[index] = '-'
+                    continue
+                }
+            }
+
             val digitNearby = hasDigitNearby(chars, index)
             when {
                 // 紧邻数字的 Y/y 是货币符号的误识别
@@ -49,6 +63,15 @@ object OcrTextSanitizer {
 
     /** 整段文本逐行清洗。 */
     fun sanitizeAll(lines: List<String>): List<String> = lines.map { sanitize(it) }
+
+    /**
+     * 逐行清洗并**保留坐标**。
+     *
+     * OCR 行已经带位置，丢了就只能靠行号分组；保留它才能和节点通道共用
+     * 「按视觉行还原标签→值」的那套逻辑。
+     */
+    fun sanitizeItems(items: List<PageText>): List<PageText> =
+        items.map { it.copy(text = sanitize(it.text)) }.filter { it.text.isNotEmpty() }
 
     private fun adjacentIsDigit(chars: CharArray, index: Int): Boolean {
         val next = chars.getOrNull(index + 1)
