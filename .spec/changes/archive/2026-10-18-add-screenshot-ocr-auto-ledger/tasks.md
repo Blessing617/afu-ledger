@@ -7,7 +7,7 @@
 
 ## 1. OCR 引擎落地与模型打包
 
-- [x] 1.1 引擎 spike：在小米 14 Pro 上用最小样例跑通「截图 → PP-OCR det+rec → 文本行」；若集成成本或体积不可接受，按 design 的退路切到 Tesseract + `chi_sim` + 金额 ROI 裁剪，并把结论回填 design 的选型表 — 验证：一张微信账单截图能输出可读文本行，且记录单次耗时。**实做**：先在 PC 上用合成图跑通 det 后处理 + CTC 解码，再移植到真机；真机端到端 838 ms（full runtime）。体积超预算后改用 `onnxruntime-mobile` + `.ort`，回填见 design「落地时被现实推翻的三件事」
+- [x] 1.1 引擎 spike：在Android 16 真机 上用最小样例跑通「截图 → PP-OCR det+rec → 文本行」；若集成成本或体积不可接受，按 design 的退路切到 Tesseract + `chi_sim` + 金额 ROI 裁剪，并把结论回填 design 的选型表 — 验证：一张微信账单截图能输出可读文本行，且记录单次耗时。**实做**：先在 PC 上用合成图跑通 det 后处理 + CTC 解码，再移植到真机；真机端到端 838 ms（full runtime）。体积超预算后改用 `onnxruntime-mobile` + `.ort`，回填见 design「落地时被现实推翻的三件事」
 - [x] 1.2 加入运行时依赖与构建配置：`gradle/libs.versions.toml` + `app/build.gradle.kts`（ONNX Runtime、`abiFilters += "arm64-v8a"`、`noCompress += "onnx"`）— 验证：`./gradlew :app:assembleDebug` 通过，`unzip -l app-debug.apk | grep -E "onnx|\.so"` 可见模型与库。**实做**：最终依赖是 `onnxruntime-mobile:1.18.0`，`noCompress` 为 `ort`
 - [x] 1.3 模型与字典入 `app/src/main/assets/ocr/`，新增 `OcrModelInstaller`：首次把资产解压到 `filesDir/ocr/<version>/`，带版本校验与「缺失即重建」— 验证：卸载重装后首次识别能自动解压成功；手工删除目录后再次识别能自愈。**实做**：加了 `.ready` 版本标记，因为只比文件大小会把旧模型误判成已就绪（实测踩坑）
 - [x] 1.4 记录实测包体增量并回填 design — 验证：引入前后 `unzip -l` 对比，把数字写进 design「待实测项」。**实测**：release 2.2 MB → 22.0 MB，增量 **19.8 MB**
@@ -47,7 +47,7 @@
 
 - [x] 6.1 JVM 单测补齐并全绿：`ScreenshotThrottleTest`、`OcrTextSanitizerTest`、`OcrLineBuilderTest`、`OcrSampleDetectorTest` — 验证：`./gradlew test` 全绿。**实测**：98 个测试，0 失败
 - [x] 6.2 debug 模拟页扩场景：`WECHAT_OCR_FULL`、`OCR_NOISE_O`、`OCR_NOISE_BAD`、`OCR_LOW_CONTRAST`、`OCR_CHAT` — 验证：`adb shell am start -n com.afu.ledger/com.afu.ledger.debug.DemoPaymentActivity --es scenario <名字>` 逐个跑，结果符合 design 期望表（记得先退出再进）。**实测**：5 个场景全部符合 —— 2550 命中、`-42.OO`→4200、`¥4Z.5O` 被拒、低对比度 1990 命中、聊天页不弹
-- [x] 6.3 小米 14 Pro 真机：微信历史账单详情页 OCR 弹窗，金额与页面一致，点「忽略」不入账 — 验证：截图存档 + 识别日志。**已完成**：点开微信账单里一笔 −42.00 的交易，悬浮窗显示 ¥42.00 / 商户 Valve / 账户 Cash，与页面一致；点「忽略」后首页无新增交易。**过程中发现并修复了三个节流缺陷**（微信同 Activity 翻页不发窗口事件、className 是控件类名、换页信号被后续事件冲掉），详见 design「真机联调又踩到的三个坑」
+- [x] 6.3 Android 16 真机 真机：微信历史账单详情页 OCR 弹窗，金额与页面一致，点「忽略」不入账 — 验证：截图存档 + 识别日志。**已完成**：点开微信账单里一笔 −42.00 的交易，悬浮窗显示 ¥42.00 / 商户 Valve / 账户 Cash，与页面一致；点「忽略」后首页无新增交易。**过程中发现并修复了三个节流缺陷**（微信同 Activity 翻页不发窗口事件、className 是控件类名、换页信号被后续事件冲掉），详见 design「真机联调又踩到的三个坑」
 - [x] 6.4 节流实测：在微信内连续浏览 3 分钟，统计截图次数不超过节流上限，无可感知卡顿 — 验证：日志计数 + `adb shell dumpsys batterystats` 对比。**实测**：30 秒持续滚动 490 个事件 → 0 次截图；2.2 秒间隔滚动 8 次 → 6 次判定全被节流拦截
 - [x] 6.5 支付宝回归 + 手动记账 / 资产 / 分类 / 换肤回归 — 验证：支付宝识别弹窗正常；主要页面手测通过。**说明**：支付宝节点通道代码未变，单测全绿；首页/设置页真机手测通过
 - [x] 6.6 权限审计：debug 与 release 合并 Manifest 仍无 `INTERNET` / `SYSTEM_ALERT_WINDOW` / `READ_SMS` / `READ_MEDIA_IMAGES` — 验证：`aapt dump permissions` 输出存档。**实测**：两个 APK 都只有 `com.afu.ledger.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`（androidx 自加的私有权限）

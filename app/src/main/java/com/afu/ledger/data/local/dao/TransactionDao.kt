@@ -49,4 +49,18 @@ interface TransactionDao {
             "WHERE type = :type AND occurredAt BETWEEN :fromInclusive AND :toExclusive"
     )
     suspend fun sumByType(type: String, fromInclusive: Long, toExclusive: Long): Long
+
+    @Query("SELECT COUNT(*) FROM transactions")
+    suspend fun count(): Int
+
+    /**
+     * 备份导出用的分页读取。
+     *
+     * 按 id 而不是 occurredAt 排序：id 是主键，OFFSET 分页不会因为排序不稳定而重复或漏行。
+     */
+    @Query("SELECT * FROM transactions ORDER BY id LIMIT :limit OFFSET :offset")
+    suspend fun page(limit: Int, offset: Int): List<TransactionEntity>
+
+    @Query("DELETE FROM transactions")
+    suspend fun deleteAll()
 }

@@ -134,8 +134,8 @@
 - THEN 数据库与 DataStore 中不保留该页面的原始文本快照
 - AND 仅保留交易本身与去重所需的最小指纹
 
-### Requirement: 小米 14 Pro / Android 16 适配
-系统 SHALL 在小米 14 Pro（Android 16 / HyperOS）上端到端可用：受限设置可解除、服务能保持运行、悬浮窗能正常显示。
+### Requirement: Android 16 真机 / Android 16 适配
+系统 SHALL 在Android 16 真机（Android 16 / HyperOS）上端到端可用：受限设置可解除、服务能保持运行、悬浮窗能正常显示。
 
 #### Scenario: 受限设置引导
 - GIVEN 用户在 HyperOS 上开启无障碍服务时遇到「受限制的设置」拦截
@@ -143,7 +143,7 @@
 - THEN 引导中给出「应用信息 → 允许受限制的设置」的具体路径
 
 #### Scenario: 真机端到端
-- GIVEN 小米 14 Pro 已按引导完成授权
+- GIVEN Android 16 真机 已按引导完成授权
 - WHEN 用户在微信、支付宝完成一笔支付并停留在结果页
 - THEN 两次都出现确认悬浮窗
 - AND 确认后首页出现对应交易，账户余额正确变化

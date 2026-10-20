@@ -4,14 +4,14 @@
 
 v0.2.0 的无障碍通道对**支付宝有效、对微信完全无效**。上一个变更的真机结论很明确：微信（聊天、账单列表、账单详情、支付成功页）是自绘渲染，`rootInActiveWindow` 文本为 0，加 `flagIncludeNotImportantViews` 与全窗口遍历依旧为 0 节点。
 
-同时验证到一条可行路线：service 声明 `android:canTakeScreenshot="true"` 后，`AccessibilityService.takeScreenshot()` 在小米 14 Pro（Android 16 / HyperOS）上成功返回 1440×3200 画面，微信账单页文字清晰可辨。也就是说，**截图 + 离线 OCR 是微信唯一可行的自动记账路线**。
+同时验证到一条可行路线：service 声明 `android:canTakeScreenshot="true"` 后，`AccessibilityService.takeScreenshot()` 在Android 16 真机（Android 16 / HyperOS）上成功返回 1440×3200 画面，微信账单页文字清晰可辨。也就是说，**截图 + 离线 OCR 是微信唯一可行的自动记账路线**。
 
 本次变更把微信补上：微信在前台且页面稳定后截图 → 纯离线 OCR 出文本 → 交给**现有的**页面规则、金额解析、商户提取、去重、悬浮窗入账链路，不重写这些组件。
 
 硬约束（来自需求）：
 
 - **纯离线**：不申请 `INTERNET`，OCR 模型打包进 APK，识别全在本机
-- **小米 14 Pro 上耗电可控**：不能每个无障碍事件都截图，必须节流
+- **Android 16 真机 上耗电可控**：不能每个无障碍事件都截图，必须节流
 - **宁可漏记不可记错**：OCR 会误识别（`-42.00` → `-42.OO`），拿不准直接放弃
 - **验收不花钱**：用微信历史账单详情页 + debug 模拟页验证，不做真实支付
 

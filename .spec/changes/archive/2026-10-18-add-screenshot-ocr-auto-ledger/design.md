@@ -69,7 +69,7 @@
 | `assets/ocr/rec.ort` | 11.0 MB | PP-OCRv4 rec mobile（中英数字字典） |
 | `assets/ocr/ppocr_keys_v1.txt` | 26 KB | 6623 字字典 |
 
-### 实测数据（小米 14 Pro / Android 16）
+### 实测数据（Android 16 真机 / Android 16）
 
 | 指标 | 实测值 |
 |---|---|
@@ -93,7 +93,7 @@
 
 ## 决策：ABI 裁剪
 
-`onnxruntime-mobile` 的 AAR 同样含多 ABI。目标机型是小米 14 Pro（`arm64-v8a`），做法：
+`onnxruntime-mobile` 的 AAR 同样含多 ABI。目标机型是Android 16 真机（`arm64-v8a`），做法：
 
 ```kotlin
 defaultConfig {
@@ -342,7 +342,7 @@ AutoRecognitionEngine（编排，非 Service 类）
 
 ### 5. 真机验收口径
 
-小米 14 Pro 上：模拟页 5 个场景结果符合期望表；微信历史账单详情页弹窗金额正确；支付宝回归正常；`./gradlew test` 全绿；合并 Manifest 仍无 `INTERNET`。**不要求真实支付一笔。**
+Android 16 真机 上：模拟页 5 个场景结果符合期望表；微信历史账单详情页弹窗金额正确；支付宝回归正常；`./gradlew test` 全绿；合并 Manifest 仍无 `INTERNET`。**不要求真实支付一笔。**
 
 ## 风险与对策
 

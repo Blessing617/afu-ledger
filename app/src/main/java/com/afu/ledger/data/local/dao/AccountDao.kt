@@ -53,4 +53,13 @@ interface AccountDao {
         """
     )
     fun observeBalances(): Flow<List<AccountBalance>>
+
+    @Query("SELECT * FROM accounts ORDER BY archived, sortOrder, id")
+    suspend fun findAll(): List<AccountEntity>
+
+    @Query("SELECT COUNT(*) FROM accounts")
+    suspend fun count(): Int
+
+    @Query("DELETE FROM accounts")
+    suspend fun deleteAll()
 }

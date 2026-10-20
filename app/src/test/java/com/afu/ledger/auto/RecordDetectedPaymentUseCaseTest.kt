@@ -162,6 +162,12 @@ private class FakeAccountDao(private val accounts: List<AccountEntity>) : Accoun
     override suspend fun findById(id: Long): AccountEntity? = accounts.firstOrNull { it.id == id }
 
     override fun observeBalances(): Flow<List<AccountBalance>> = flowOf(emptyList())
+
+    override suspend fun findAll(): List<AccountEntity> = accounts
+
+    override suspend fun count(): Int = accounts.size
+
+    override suspend fun deleteAll() = Unit
 }
 
 private class FakeCategoryDao(private val categories: List<CategoryEntity>) : CategoryDao {
@@ -184,6 +190,10 @@ private class FakeCategoryDao(private val categories: List<CategoryEntity>) : Ca
     override suspend fun count(): Int = categories.size
 
     override suspend fun countUsage(categoryId: Long): Int = 0
+
+    override suspend fun findAll(): List<CategoryEntity> = categories
+
+    override suspend fun deleteAll() = Unit
 }
 
 private class FakeTransactionDao(
@@ -219,4 +229,11 @@ private class FakeTransactionDao(
         transactions.firstOrNull { it.id == id }
 
     override suspend fun sumByType(type: String, fromInclusive: Long, toExclusive: Long): Long = 0L
+
+    override suspend fun count(): Int = transactions.size
+
+    override suspend fun page(limit: Int, offset: Int): List<TransactionEntity> =
+        transactions.sortedBy { it.id }.drop(offset).take(limit)
+
+    override suspend fun deleteAll() = Unit
 }

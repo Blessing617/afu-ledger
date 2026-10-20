@@ -37,4 +37,10 @@ interface CategoryDao {
     /** 统计分类被多少笔交易引用，用于删除前保护。 */
     @Query("SELECT COUNT(*) FROM transactions WHERE categoryId = :categoryId")
     suspend fun countUsage(categoryId: Long): Int
+
+    @Query("SELECT * FROM categories ORDER BY type, sortOrder, id")
+    suspend fun findAll(): List<CategoryEntity>
+
+    @Query("DELETE FROM categories")
+    suspend fun deleteAll()
 }

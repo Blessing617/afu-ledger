@@ -66,6 +66,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -83,6 +87,8 @@ import com.afu.ledger.data.prefs.ThemeSettings
 import com.afu.ledger.domain.model.AccountWithBalance
 import com.afu.ledger.ui.appearance.AppearanceScreen
 import com.afu.ledger.ui.assets.AccountEditorDialog
+import com.afu.ledger.ui.budget.BudgetScreen
+import com.afu.ledger.ui.budget.BudgetViewModel
 import com.afu.ledger.ui.assets.AssetsScreen
 import com.afu.ledger.ui.assets.AssetsViewModel
 import com.afu.ledger.ui.category.CategoryScreen
@@ -153,6 +159,7 @@ fun AfuApp(container: AppContainer) {
                     transactionRepository = container.transactionRepository,
                     categoryRepository = container.categoryRepository,
                     accountRepository = container.accountRepository,
+                    budgetRepository = container.budgetRepository,
                     pendingBillStore = container.pendingBills,
                     processedBillStore = container.processedBills,
                     settingsRepository = container.autoLedgerSettings,
@@ -163,6 +170,7 @@ fun AfuApp(container: AppContainer) {
         },
     )
     val ledgerState by ledgerViewModel.uiState.collectAsStateWithLifecycle()
+    val budgetProgress by ledgerViewModel.budgetProgress.collectAsStateWithLifecycle()
 
     val settingsViewModel: SettingsViewModel = viewModel(
         factory = viewModelFactory {
@@ -174,6 +182,11 @@ fun AfuApp(container: AppContainer) {
                     categoryRepository = container.categoryRepository,
                     recognitionLog = container.recognitionLog,
                     ocrStatusHolder = container.ocrStatus,
+                    backupManager = container.backupManager,
+                    contentResolver = appContext.contentResolver,
+                    afterLedgerRestored = {
+                        (appContext as? AfuApplication)?.requestDueSchedules()
+                    },
                 )
             }
         },
@@ -231,6 +244,8 @@ fun AfuApp(container: AppContainer) {
                         onOpenHistory = { currentTab = "history" },
                         onConfirmPending = ledgerViewModel::confirmPending,
                         onIgnorePending = ledgerViewModel::ignorePending,
+                        budgetProgress = budgetProgress,
+                        onOpenBudgets = { navController.navigate("budgets") },
                     )
                 }
                 TabPage(route = "history", current = currentTab, backgrounded = isOverlay) {
@@ -252,6 +267,7 @@ fun AfuApp(container: AppContainer) {
                         onOpenAppearance = { navController.navigate("appearance") },
                         onManageCategories = { navController.navigate("categories") },
                         onOpenSchedules = { navController.navigate("schedules") },
+                        onOpenBudgets = { navController.navigate("budgets") },
                     )
                 }
             }
@@ -323,6 +339,9 @@ fun AfuApp(container: AppContainer) {
                     viewModel = settingsViewModel,
                     navController = navController,
                 )
+            }
+            composable("budgets") {
+                BudgetRoute(container = container, onBack = { navController.popBackStack() })
             }
             composable("schedules") {
                 ScheduleRoute(container = container, onBack = { navController.popBackStack() })
@@ -825,6 +844,7 @@ private fun SettingsRoute(
     onOpenAppearance: () -> Unit,
     onManageCategories: () -> Unit,
     onOpenSchedules: () -> Unit,
+    onOpenBudgets: () -> Unit,
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val autoSettings by viewModel.autoSettings.collectAsStateWithLifecycle()
@@ -832,7 +852,36 @@ private fun SettingsRoute(
     val expenseCategories by viewModel.expenseCategories.collectAsStateWithLifecycle()
     val logEntries by viewModel.logEntries.collectAsStateWithLifecycle()
     val ocrStatus by viewModel.ocrStatus.collectAsStateWithLifecycle()
+    val dataStats by viewModel.dataStats.collectAsStateWithLifecycle()
+    val dataBusy by viewModel.dataBusy.collectAsStateWithLifecycle()
+    val dataMessage by viewModel.dataMessage.collectAsStateWithLifecycle()
     val serviceEnabled = rememberAutoLedgerServiceEnabled()
+
+    val context = LocalContext.current
+
+    // 备份结果提示：Toast 后立刻消费掉，避免重组时重复弹
+    LaunchedEffect(dataMessage) {
+        dataMessage?.let { message ->
+            Toast.makeText(
+                context,
+                message.text,
+                if (message.isError) Toast.LENGTH_LONG else Toast.LENGTH_SHORT,
+            ).show()
+            viewModel.consumeDataMessage()
+        }
+    }
+
+    // 导出：系统文件选择器（SAF），不需要任何存储权限
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri -> uri?.let(viewModel::exportBackup) }
+
+    // 导入：有些文件管理器把 .json 报成 octet-stream，所以放开类型再靠内容校验
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(viewModel::importBackup) }
+
+    LaunchedEffect(Unit) { viewModel.refreshDataStats() }
 
     // 记住「曾经开过」：用来区分「从没设置」与「被系统撤销」，
     // 后者的引导需要解释原因（多半是被从最近任务划掉了）。
@@ -858,6 +907,7 @@ private fun SettingsRoute(
         onOpenAppearance = onOpenAppearance,
         onManageCategories = onManageCategories,
         onOpenSchedules = { onOpenSchedules() },
+        onOpenBudgets = onOpenBudgets,
         onAutoEnabledChange = viewModel::setAutoEnabled,
         onDefaultAccountChange = viewModel::setDefaultAccount,
         onDefaultCategoryChange = viewModel::setDefaultCategory,
@@ -865,6 +915,15 @@ private fun SettingsRoute(
         onOcrEnabledChange = viewModel::setOcrEnabled,
         onHideKeepAliveNotificationChange = viewModel::setHideKeepAliveNotification,
         onClearLog = viewModel::clearLog,
+        dataStats = dataStats,
+        dataBusy = dataBusy,
+        onExportBackup = {
+            exportLauncher.launch("afu-ledger-${java.time.LocalDateTime.now().let { t ->
+                "%04d%02d%02d-%02d%02d".format(t.year, t.monthValue, t.dayOfMonth, t.hour, t.minute)
+            }}.json")
+        },
+        onImportBackup = { importLauncher.launch(arrayOf("*/*")) },
+        onClearAllData = viewModel::clearAllData,
     )
 }
 
@@ -951,6 +1010,34 @@ private fun CategoryRoute(container: AppContainer, onBack: () -> Unit) {
  * 规则一改就立刻重排闹钟（`onScheduleChanged`）：
  * 否则新建的规则要等到明天兜底任务或下次开机才生效，用户会以为它坏了。
  */
+@Composable
+private fun BudgetRoute(container: AppContainer, onBack: () -> Unit) {
+    val viewModel: BudgetViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer {
+                BudgetViewModel(
+                    budgetRepository = container.budgetRepository,
+                    categoryRepository = container.categoryRepository,
+                    transactionRepository = container.transactionRepository,
+                )
+            }
+        },
+    )
+    val budgets by viewModel.budgets.collectAsStateWithLifecycle()
+    val progressByBudget by viewModel.progressByBudget.collectAsStateWithLifecycle()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+
+    BudgetScreen(
+        budgets = budgets,
+        progressByBudget = progressByBudget,
+        categories = categories,
+        onBack = onBack,
+        onSave = viewModel::save,
+        onDelete = viewModel::delete,
+        onToggle = viewModel::setEnabled,
+    )
+}
+
 @Composable
 private fun ScheduleRoute(container: AppContainer, onBack: () -> Unit) {
     val application = androidx.compose.ui.platform.LocalContext.current.applicationContext as AfuApplication

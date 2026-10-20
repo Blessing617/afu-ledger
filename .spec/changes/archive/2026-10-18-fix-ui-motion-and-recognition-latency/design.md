@@ -188,7 +188,7 @@ private fun KeepAliveStatusLine() {
 
 ## 四、基线与验收
 
-### 4.1 真机实测基线（小米 14 Pro / 23116PN5BC / Android 16，2026-10-18）
+### 4.1 真机实测基线（Android 16 真机 / （机型信息略） / Android 16，2026-10-18）
 
 设备：1440×3200 @ 560dpi，已装 v0.3.0，无障碍服务已授权。
 
@@ -263,7 +263,7 @@ private fun KeepAliveStatusLine() {
    debug 版 ART 不做 AOT、JIT 校验开销大，我之前测到的 p99 150ms 里有很大一块
    是构建本身的代价，不代表用户真实体验。
 
-### 5.2 真机实测（小米 14 Pro，1440×3200）
+### 5.2 真机实测（Android 16 真机，1440×3200）
 
 设置页快速甩动（`input swipe 720 2600 → 720 300 80ms`，往返 6–8 轮）：
 

@@ -2,7 +2,8 @@ package com.afu.ledger
 
 import android.app.Application
 import coil3.SingletonImageLoader
-import coil3.request.ImageRequest
+import com.afu.ledger.data.prefs.BackgroundThumbnail
+import com.afu.ledger.ui.component.backgroundImageRequest
 import android.content.pm.PackageManager
 import com.afu.ledger.auto.keepalive.ShizukuGuard
 import rikka.shizuku.Shizuku
@@ -38,13 +39,16 @@ class AfuApplication : Application() {
         }
 
         // 预加载背景图：让首页首次组合直接命中图片缓存，
-        // 避免「先空一段时间、再整张图突然出现」
+        // 避免「先空一段时间、再整张图突然出现」。
+        // 用与界面完全相同的请求（同 size、同 memoryCacheKey），预热才有意义。
         applicationScope.launch {
             val backgroundUri = container.themePreferences.settings.first().backgroundUri ?: return@launch
             runCatching {
-                val request = ImageRequest.Builder(this@AfuApplication)
-                    .data(backgroundUri)
-                    .build()
+                // 老版本的背景图没有占位缩略图，补一张（只做一次，之后一直命中）
+                if (BackgroundThumbnail.load(this@AfuApplication) == null) {
+                    BackgroundThumbnail.regenerate(this@AfuApplication, backgroundUri)
+                }
+                val request = backgroundImageRequest(this@AfuApplication, backgroundUri)
                 SingletonImageLoader.get(this@AfuApplication).enqueue(request)
             }
         }
