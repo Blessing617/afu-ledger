@@ -59,6 +59,19 @@ class PaymentPageDetector(
             return DetectionResult.Missed(MissReason.NOT_PAYMENT_PAGE)
         }
 
+        val tradeNo = TradeNoExtractor.extract(fields)
+
+        // ④.5 支付结果页不参与入账。
+        //     支付宝的「支付成功」页会带「付款方式」等字段，能凑够强证据门槛，
+        //     但它不是账单详情页 —— 同一笔付款在「聚合收款」与「支付成功」两页各命中一次，
+        //     正是 2026-10-20 重复记账的直接原因之一。结果页不弹，账单详情页照常。
+        //
+        //     判据刻意保守：**没有交易单号、没有账单标题、也没有任何账单时间字段**才算结果页。
+        //     支付宝旧版账单详情页常常不渲染单号，但它一定有「支付时间」，因此不会被误杀。
+        if (isPaymentResultPage(fields, pageText, tradeNo)) {
+            return DetectionResult.Missed(MissReason.PAYMENT_RESULT_PAGE)
+        }
+
         // ⑤ 金额与方向
         val amountResult = AmountParser.parseTransaction(lines, allowBareAmount = true)
         val (amount, amountDirection, amountLine) = when (amountResult) {
@@ -87,7 +100,7 @@ class PaymentPageDetector(
                 amount = amount,
                 direction = direction,
                 merchant = MerchantExtractor.extract(fields, amount),
-                tradeNo = TradeNoExtractor.extract(fields),
+                tradeNo = tradeNo,
                 pageCategory = fields.valueOf("账单分类", "交易分类", "分类"),
                 source = PaymentPageRules.sourceLabel(snapshot.packageName),
                 sourcePackage = snapshot.packageName,
@@ -129,6 +142,26 @@ class PaymentPageDetector(
         if (PaymentPageRules.billTitleKeywords.any { pageText.contains(it) }) return true
         val fieldHits = PaymentPageRules.billStrongFields.count { fields.hasLabel(it) }
         return fieldHits >= PaymentPageRules.MIN_BILL_FIELD_HITS
+    }
+
+    /**
+     * 是不是「支付结果页」（付款成功那种）。
+     *
+     * 判据刻意保守，避免误杀旧版支付宝账单详情页（它经常不渲染交易单号）：
+     * - 必须命中成功类状态词
+     * - 没有账单标题
+     * - 没有任何交易单号
+     * - **也没有任何账单时间字段**（旧版账单一定有「支付时间」，所以不会被误杀）
+     */
+    private fun isPaymentResultPage(
+        fields: BillFieldParser,
+        pageText: String,
+        tradeNo: String?,
+    ): Boolean {
+        if (tradeNo != null) return false
+        if (PaymentPageRules.billTitleKeywords.any { pageText.contains(it) }) return false
+        if (BillTimeExtractor.labels.any { fields.hasLabel(it) }) return false
+        return PaymentPageRules.resultKeywords.any { pageText.contains(it) }
     }
 
     /** 用页面状态词兜底判断方向。 */
