@@ -24,16 +24,22 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.afu.ledger.domain.model.AccountType
 import com.afu.ledger.domain.model.AccountWithBalance
+import com.afu.ledger.domain.model.Money
 import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.component.AfuIconBadge
 import com.afu.ledger.ui.component.EmptyState
@@ -142,6 +148,15 @@ fun AssetsScreen(
 @Composable
 private fun NetWorthCard(uiState: AssetsUiState) {
     val primary = MaterialTheme.colorScheme.primary
+
+    // 大额自动缩写，点按展开完整数字。
+    // 真机证据：¥99,999,999,999,956.00 这种长度会把大字号数字折成两行或裁掉。
+    var expanded by remember { mutableStateOf(false) }
+    val fullText = MoneyFormatter.formatWithSymbol(uiState.netWorth)
+    val compactText = MoneyFormatter.formatCompactWithSymbol(uiState.netWorth)
+    val hasCompact = compactText.length < fullText.length
+    val netWorthText = if (expanded || !hasCompact) fullText else compactText
+
     AfuCard(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
@@ -164,23 +179,39 @@ private fun NetWorthCard(uiState: AssetsUiState) {
                         )
                         Spacer(Modifier.height(Spacing.xs))
                         Text(
-                            text = MoneyFormatter.formatWithSymbol(uiState.netWorth),
-                            fontSize = 34.sp,
+                            text = netWorthText,
+                            // 完整形态可能很长：按长度降字号，且允许折行，绝不裁切
+                            fontSize = netWorthFontSize(netWorthText),
+                            lineHeight = netWorthFontSize(netWorthText) * 1.15f,
                             fontWeight = FontWeight.Bold,
                             color = primary,
+                            maxLines = 2,
+                            modifier = Modifier.clickable(enabled = hasCompact) {
+                                expanded = !expanded
+                            },
                         )
+                        if (hasCompact) {
+                            Text(
+                                text = if (expanded) "点一下收起" else "点一下看完整金额",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .padding(top = 2.dp)
+                                    .clickable { expanded = !expanded },
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(Spacing.md))
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
                     MiniMetric(
                         label = "总资产",
-                        value = MoneyFormatter.formatWithSymbol(uiState.totalAssets),
+                        money = uiState.totalAssets,
                         modifier = Modifier.weight(1f),
                     )
                     MiniMetric(
                         label = "总负债",
-                        value = MoneyFormatter.formatWithSymbol(uiState.totalLiabilities),
+                        money = uiState.totalLiabilities,
                         valueColor = MaterialTheme.colorScheme.error,
                         modifier = Modifier.weight(1f),
                     )
@@ -190,10 +221,17 @@ private fun NetWorthCard(uiState: AssetsUiState) {
     }
 }
 
+/** 净资产主数字的字号：越长越小，保证一行放得下（折行时也不至于撑破卡片）。 */
+private fun netWorthFontSize(text: String): TextUnit = when {
+    text.length <= 15 -> 34.sp
+    text.length <= 20 -> 26.sp
+    else -> 20.sp
+}
+
 @Composable
 private fun MiniMetric(
     label: String,
-    value: String,
+    money: Money,
     modifier: Modifier = Modifier,
     valueColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
@@ -209,7 +247,7 @@ private fun MiniMetric(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = value,
+            text = MoneyFormatter.formatCompactWithSymbol(money),
             style = MaterialTheme.typography.titleMedium,
             color = valueColor,
             maxLines = 1,
@@ -254,7 +292,7 @@ private fun AccountRow(
             )
         }
         Text(
-            text = MoneyFormatter.formatWithSymbol(item.balance),
+            text = MoneyFormatter.formatCompactWithSymbol(item.balance),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             color = if (item.balance.cents < 0) MaterialTheme.colorScheme.error

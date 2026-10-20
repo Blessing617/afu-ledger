@@ -34,6 +34,7 @@ class PaymentConfirmController(
     private val container: AppContainer,
     private val overlay: PaymentConfirmOverlay,
     private val deduper: DetectionDeduper,
+    private val sessionDeduper: PaymentSessionDeduper,
     private val processedBills: ProcessedBillStore,
     private val scope: CoroutineScope,
     private val settingsProvider: () -> AutoLedgerSettings,
@@ -77,18 +78,26 @@ class PaymentConfirmController(
                 return@launch
             }
 
-            // ② 进程内短时去重：页面反复刷新时不重复弹
+            // ② 会话级去重：同一笔付款在支付宝里会先后出现两个页面
+            //    （「付款成功 / 聚合收款」有单号没商户，「支付成功」有商户没单号），
+            //    两页指纹不同，只有按「金额 + 方向」的会话键才挡得住第二次。
+            if (sessionDeduper.isDuplicate(draft)) {
+                logger.log(draft.sourcePackage, "同一笔支付（跨页面），已忽略", draft.amount.cents, draft.merchant)
+                return@launch
+            }
+
+            // ③ 进程内短时去重：页面反复刷新时不重复弹
             if (!deduper.shouldNotify(draft)) {
                 logger.log(draft.sourcePackage, "同一笔支付，已忽略", draft.amount.cents, draft.merchant)
                 return@launch
             }
 
-            // ③ **先落待确认，再弹窗**。
+            // ④ **先落待确认，再弹窗**。
             //    部分系统对支付类应用禁止悬浮窗（钱迹/iCost 的 FAQ 都写了），
             //    弹不出来就丢掉等于静默丢账。落了库之后，弹窗失败还能从通知与首页补确认。
             container.pendingBills.add(PendingBillStore.fromDraft(draft))
 
-            // ④ 再记「刚弹过」（短有效期）：即使卡片被系统吞掉、用户没看见，
+            // ⑤ 再记「刚弹过」（短有效期）：即使卡片被系统吞掉、用户没看见，
             //    十分钟内也不会被同一页面反复唤醒。
             processedBills.markShown(fingerprint)
             shownFingerprint = fingerprint

@@ -3,6 +3,12 @@ package com.afu.ledger.ui.settings
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -100,10 +106,23 @@ fun AutoLedgerSection(
     SettingSwitchRow(
         icon = Icons.Rounded.Bolt,
         title = "自动记账",
-        subtitle = "识别微信 / 支付宝支付结果页，确认后才入账",
+        subtitle = if (settings.enabled) {
+            "识别微信 / 支付宝支付结果页，确认后才入账"
+        } else {
+            "已关闭 · 打开后可配置默认账户、分类与截图 OCR"
+        },
         checked = settings.enabled,
         onCheckedChange = onEnabledChange,
     )
+
+    // 打开总开关才展开详情：关闭时整块只剩这一行，避免把设置页铺成一整面说明书。
+    // 收起只影响「显示」，不碰已保存的默认账户 / 默认分类。
+    AnimatedVisibility(
+        visible = settings.enabled,
+        enter = expandVertically(animationSpec = tween(240)) + fadeIn(animationSpec = tween(240)),
+        exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(120)),
+    ) {
+        Column {
     SettingDivider()
 
     // 状态行：一行说清「能不能用」
@@ -260,6 +279,8 @@ fun AutoLedgerSection(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
                 ) { Text("清空日志") }
             }
+        }
+    }
         }
     }
 }

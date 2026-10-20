@@ -12,7 +12,10 @@ import com.afu.ledger.data.local.AppDatabase
 import com.afu.ledger.data.prefs.ThemePreferences
 import com.afu.ledger.data.repository.AccountRepository
 import com.afu.ledger.data.repository.CategoryRepository
+import com.afu.ledger.data.repository.ScheduleRuleRepository
 import com.afu.ledger.data.repository.TransactionRepository
+import com.afu.ledger.schedule.PendingOccurrenceStore
+import com.afu.ledger.schedule.RunDueSchedulesUseCase
 
 /**
  * 手写依赖容器。
@@ -28,6 +31,21 @@ class AppContainer(context: Context) {
     val categoryRepository: CategoryRepository = CategoryRepository(database.categoryDao())
 
     val transactionRepository: TransactionRepository = TransactionRepository(database.transactionDao())
+
+    /** 定时记账规则。 */
+    val scheduleRuleRepository: ScheduleRuleRepository = ScheduleRuleRepository(database.scheduleRuleDao())
+
+    /** 「提醒确认」型定时规则的待确认期次。 */
+    val pendingOccurrences: PendingOccurrenceStore = PendingOccurrenceStore(context.applicationContext)
+
+    /** 到期检查 + 自动入账 / 落待确认 + 补记。闹钟、兜底任务、打开应用三条路径共用。 */
+    val runDueSchedules: RunDueSchedulesUseCase = RunDueSchedulesUseCase(
+        rules = scheduleRuleRepository,
+        transactions = transactionRepository,
+        accounts = accountRepository,
+        categories = categoryRepository,
+        pending = pendingOccurrences,
+    )
 
     val themePreferences: ThemePreferences = ThemePreferences(context.applicationContext)
 

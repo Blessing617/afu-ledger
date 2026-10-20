@@ -194,6 +194,18 @@ private class FakeTransactionDao(
         return transactions.size.toLong()
     }
 
+    override suspend fun insertIgnoringDuplicate(transaction: TransactionEntity): Long {
+        val duplicate = transaction.scheduleRuleId != null && transactions.any {
+            it.scheduleRuleId == transaction.scheduleRuleId && it.occurredAt == transaction.occurredAt
+        }
+        if (duplicate) return -1L
+        transactions.add(transaction)
+        return transactions.size.toLong()
+    }
+
+    override suspend fun findByRule(ruleId: Long): List<TransactionEntity> =
+        transactions.filter { it.scheduleRuleId == ruleId }
+
     override suspend fun update(transaction: TransactionEntity) = Unit
 
     override suspend fun deleteById(id: Long) = Unit

@@ -57,4 +57,36 @@ class MerchantExtractorTest {
         )
         assertNull(MerchantExtractor.extract(texts, Money(2500)))
     }
+
+    @Test
+    fun `支付成功页取到真实商户`() {
+        // 真机 2026-10-20：这一页真正的商户是「杭州深度求索」，
+        // 旧实现却把底部的「回首页 返回商家」当成了商户。
+        val texts = listOf(
+            "支付成功", "¥20.00", "杭州深度求索", "付款方式", "账户余额",
+            "体验金+18", "账单贴纸+1", "一键领", "支付有礼", "回首页", "返回商家",
+        )
+        assertEquals("杭州深度求索", MerchantExtractor.extract(texts, Money(2000)))
+    }
+
+    @Test
+    fun `整行按钮不能被当成商户`() {
+        val texts = listOf("账单详情", "支出20元", "回首页 返回商家", "完成")
+        assertNull(MerchantExtractor.extract(texts, Money(2000)))
+    }
+
+    @Test
+    fun `按钮描述拼接文本不能被当成商户`() {
+        val texts = listOf("账单详情", "支出25.80元", "返回 按钮", "支付时间", "2026-10-20 22:07:00")
+        assertNull(MerchantExtractor.extract(texts, Money(2580)))
+
+        val texts2 = listOf("账单详情", "支出30元", "返回 按钮 完成", "支付时间", "2026-10-20 21:00:00")
+        assertNull(MerchantExtractor.extract(texts2, Money(3000)))
+    }
+
+    @Test
+    fun `活动与优惠文案不被当成商户`() {
+        val texts = listOf("账单详情", "支出25元", "支付有礼", "体验金+18", "账单贴纸+1", "去参与")
+        assertNull(MerchantExtractor.extract(texts, Money(2500)))
+    }
 }

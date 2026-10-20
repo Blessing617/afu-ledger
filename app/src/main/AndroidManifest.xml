@@ -49,6 +49,17 @@
     -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!--
+      定时记账的调度权限。
+
+      - RECEIVE_BOOT_COMPLETED：AlarmManager 的闹钟不跨重启保留，开机后必须重排；
+      - SCHEDULE_EXACT_ALARM：Android 12+ 的「闹钟和提醒」特殊权限，用户可关。
+        关掉时退化为不精确闹钟（允许几分钟到十几分钟延迟），到期期次仍会被补记，
+        功能不会失效。两者都不是网络权限。
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
     <!-- 没有这条声明，Shizuku 会认为本应用「没装 Shizuku」而直接不可用 -->
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
@@ -114,6 +125,26 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/auto_ledger_service" />
         </service>
+
+        <!--
+          定时记账的闹钟与恢复广播。
+
+          exported=false：只由系统（闹钟/开机/改时间）与本应用触发，不对外开放。
+        -->
+        <receiver
+            android:name=".schedule.ScheduleAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".schedule.ScheduleRestoreReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

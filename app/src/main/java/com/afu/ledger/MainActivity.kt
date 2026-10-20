@@ -38,6 +38,10 @@ class MainActivity : ComponentActivity() {
         // 回到应用时尝试把被系统关掉的无障碍服务写回启用列表。
         // 只有用户自己开着总开关时才自愈 —— 他主动关掉的功能不该被我们偷偷打开。
         maybeSelfHealAccessibility()
+        // 回到应用立刻补算一次定时记账：闹钟可能被省电策略吞掉，
+        // 用户打开应用这一刻是最可靠的补记时机（RAM 与 IO 都现成）。
+        val app = application as AfuApplication
+        lifecycleScope.launch { app.runDueSchedulesNow() }
     }
 
     /**

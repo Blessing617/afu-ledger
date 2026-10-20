@@ -76,6 +76,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.afu.ledger.AfuApplication
 import com.afu.ledger.data.AppContainer
 import com.afu.ledger.data.prefs.ThemeSettings
 import com.afu.ledger.domain.model.AccountWithBalance
@@ -95,6 +96,8 @@ import com.afu.ledger.ui.record.RecordScreen
 import com.afu.ledger.ui.record.RecordViewModel
 import com.afu.ledger.ui.report.ReportScreen
 import com.afu.ledger.ui.report.ReportViewModel
+import com.afu.ledger.ui.schedule.ScheduleListViewModel
+import com.afu.ledger.ui.schedule.ScheduleScreen
 import com.afu.ledger.ui.settings.SettingsScreen
 import com.afu.ledger.ui.settings.SettingsViewModel
 import com.afu.ledger.ui.settings.rememberAutoLedgerServiceEnabled
@@ -247,6 +250,7 @@ fun AfuApp(container: AppContainer) {
                         viewModel = settingsViewModel,
                         onOpenAppearance = { navController.navigate("appearance") },
                         onManageCategories = { navController.navigate("categories") },
+                        onOpenSchedules = { navController.navigate("schedules") },
                     )
                 }
             }
@@ -318,6 +322,9 @@ fun AfuApp(container: AppContainer) {
                     viewModel = settingsViewModel,
                     navController = navController,
                 )
+            }
+            composable("schedules") {
+                ScheduleRoute(container = container, onBack = { navController.popBackStack() })
             }
         }
 
@@ -700,6 +707,7 @@ private fun SettingsRoute(
     viewModel: SettingsViewModel,
     onOpenAppearance: () -> Unit,
     onManageCategories: () -> Unit,
+    onOpenSchedules: () -> Unit,
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val autoSettings by viewModel.autoSettings.collectAsStateWithLifecycle()
@@ -732,6 +740,7 @@ private fun SettingsRoute(
         wasEverEnabled = wasEverEnabled,
         onOpenAppearance = onOpenAppearance,
         onManageCategories = onManageCategories,
+        onOpenSchedules = { onOpenSchedules() },
         onAutoEnabledChange = viewModel::setAutoEnabled,
         onDefaultAccountChange = viewModel::setDefaultAccount,
         onDefaultCategoryChange = viewModel::setDefaultCategory,
@@ -816,5 +825,47 @@ private fun CategoryRoute(container: AppContainer, onBack: () -> Unit) {
         onDelete = viewModel::delete,
         onMessageConsumed = viewModel::consumeMessage,
         onBack = onBack,
+    )
+}
+
+/**
+ * 定时记账页。
+ *
+ * 规则一改就立刻重排闹钟（`onScheduleChanged`）：
+ * 否则新建的规则要等到明天兜底任务或下次开机才生效，用户会以为它坏了。
+ */
+@Composable
+private fun ScheduleRoute(container: AppContainer, onBack: () -> Unit) {
+    val application = androidx.compose.ui.platform.LocalContext.current.applicationContext as AfuApplication
+    val viewModel: ScheduleListViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer {
+                ScheduleListViewModel(
+                    rules = container.scheduleRuleRepository,
+                    accounts = container.accountRepository,
+                    categories = container.categoryRepository,
+                    transactions = container.transactionRepository,
+                    pendingStore = container.pendingOccurrences,
+                    onScheduleChanged = {
+                        application.requestDueSchedules()
+                    },
+                )
+            }
+        },
+    )
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    ScheduleScreen(
+        uiState = uiState,
+        onBack = onBack,
+        onCreate = viewModel::create,
+        onUpdate = viewModel::update,
+        onToggle = viewModel::setEnabled,
+        onDelete = viewModel::delete,
+        onConfirmPending = { occurrence ->
+            viewModel.confirm(occurrence)
+            application.requestDueSchedules()
+        },
+        onIgnorePending = viewModel::ignore,
     )
 }
