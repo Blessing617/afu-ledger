@@ -1,0 +1,532 @@
+package com.afu.ledger.auto
+
+import android.accessibilityservice.AccessibilityService
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
+import android.util.Log
+import android.view.accessibility.AccessibilityEvent
+import com.afu.ledger.AfuApplication
+import com.afu.ledger.BuildConfig
+import com.afu.ledger.MainActivity
+import com.afu.ledger.auto.keepalive.AutoLedgerKeepAlive
+import com.afu.ledger.auto.ocr.MlKitOcrEngine
+import com.afu.ledger.auto.ocr.OcrEngine
+import com.afu.ledger.auto.ocr.OcrTextChannel
+import com.afu.ledger.auto.ocr.ScreenshotCapturer
+import com.afu.ledger.auto.ocr.ScreenshotThrottle
+import com.afu.ledger.auto.overlay.PaymentConfirmOverlay
+import com.afu.ledger.data.AppContainer
+import com.afu.ledger.data.prefs.ThemeSettings
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * 自动记账的无障碍服务。
+ *
+ * 职责很窄：收事件 → 去抖 → 交给 [AutoRecognitionEngine] → 命中就交给
+ * [PaymentConfirmController] 弹窗。文本采集、页面判定、弹窗入账都不在本类里。
+ */
+class AutoLedgerAccessibilityService : AccessibilityService() {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private val detector = PaymentPageDetector(
+        debugPackageName = if (BuildConfig.DEBUG) BuildConfig.APPLICATION_ID else null,
+    )
+
+    /** 只用于把截图回调切回主线程，不依赖 androidx 的 ContextCompat。 */
+    private val captureExecutor: Executor by lazy {
+        val handler = Handler(Looper.getMainLooper())
+        Executor { runnable -> handler.post(runnable) }
+    }
+
+    private val ocrSetupMutex = Mutex()
+    private val ocrSetupStarted = AtomicBoolean(false)
+
+    private var container: AppContainer? = null
+    private var overlay: PaymentConfirmOverlay? = null
+    private var confirmController: PaymentConfirmController? = null
+    private var logger: AutoLedgerLogger? = null
+    private var ocrEngine: OcrEngine? = null
+
+    /** 主线程调度器：去抖用它，避免每个事件都创建协程。 */
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** 复用的去抖 Runnable，全服务只有一个实例，事件再多也不分配新对象。 */
+    private val pendingInspect = Runnable { runInspect() }
+
+    /** 待判定的目标包与事件类型，由事件回调就地覆盖。 */
+    private var pendingPackage: String? = null
+    private var pendingKind: ScreenshotThrottle.EventKind = ScreenshotThrottle.EventKind.CONTENT_CHANGED
+
+    /**
+     * 屏幕是否点亮（缓存）。
+     *
+     * 事件回调里不能每次都去 IPC 问 PowerManager —— 那就是耗电本身。
+     * 用一次注册的屏幕状态广播维护这个标志，息屏时直接短路，整条链路零开销。
+     */
+    @Volatile
+    private var screenOn: Boolean = true
+
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            screenOn = intent?.action == Intent.ACTION_SCREEN_ON
+        }
+    }
+
+    @Volatile
+    private var engine: AutoRecognitionEngine? = null
+
+    @Volatile
+    private var settings = AutoLedgerSettings()
+
+    /** 上一次事件里微信页面的 class，用来识别「在同一 Activity 内翻页」。 */
+    @Volatile
+    private var lastEventClass: String? = null
+
+    /** 累积的「用户换了页面」标记，等到真正判定时才消费掉。 */
+    @Volatile
+    private var pageChangePending: Boolean = false
+
+    /**
+     * 是否正在截图/识别。
+     *
+     * 用来避免「截完图又被新事件取消」：全屏截图与 OCR 的代价远高于一次去抖，
+     * 已经付掉的成本不应该被丢弃，新事件只需合并进这次识别。
+     */
+    @Volatile
+    private var captureInFlight: Boolean = false
+
+    @Volatile
+    private var themeSettings = ThemeSettings()
+
+    /** 上一次尝试初始化 OCR 的时刻，用于失败后的退避重试。 */
+    @Volatile
+    private var lastOcrSetupAttemptAt: Long = 0L
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        val app = application as AfuApplication
+        container = app.container
+
+        // 系统可能重复绑定；复用实例，别把还活着的悬浮窗引用丢了
+        val activeOverlay = overlay ?: PaymentConfirmOverlay(this).also { overlay = it }
+
+        // 悬浮窗预热**不能**直接在这里同步做。
+        //
+        // warmUp 会创建 ComposeView、初始化 Compose 组合环境并 addView 一个窗口，
+        // 这是重活。放在 onServiceConnected 的同步路径上会拖慢服务连接，
+        // 系统侧的「wait for adding window timeout」会被触发（约 20 秒），
+        // 之后绑定被放弃 —— 表现就是「明明开了无障碍，设置页却显示未开启」。
+        // 挪到主线程的下一个循环里执行，连接过程立刻返回，预热照常完成。
+        Handler(Looper.getMainLooper()).post { activeOverlay.warmUp() }
+
+        val activeLogger = AutoLedgerLogger(
+            recognitionLog = app.container.recognitionLog,
+            enabledProvider = { settings.recognitionLogEnabled },
+        )
+        logger = activeLogger
+        confirmController = PaymentConfirmController(
+            service = this,
+            container = app.container,
+            overlay = activeOverlay,
+            deduper = DetectionDeduper(),
+            sessionDeduper = PaymentSessionDeduper(),
+            processedBills = app.container.processedBills,
+            scope = scope,
+            settingsProvider = { settings },
+            themeProvider = { themeSettings },
+            logger = activeLogger,
+        )
+        engine = AutoRecognitionEngine(this, detector, ocrChannel = null, ocrDebugPackageName = debugOcrPackage)
+
+        scope.launch {
+            var ocrWasEnabled = false
+            app.container.autoLedgerSettings.settings.collect { current ->
+                settings = current
+                if (current.ocrEnabled && !ocrWasEnabled) ensureOcrChannel(app.container)
+                ocrWasEnabled = current.ocrEnabled
+                // 常驻通知开关一变就跟着启停前台服务：用户嫌通知碍事可以关掉，
+                // 代价是进程优先级下降（设置页如实写明）。
+                applyKeepAliveForeground(current.enabled && !current.hideKeepAliveNotification)
+            }
+        }
+        scope.launch {
+            app.container.themePreferences.settings.collect { themeSettings = it }
+        }
+
+        // 前台服务的启停交给上面的 settings.collect —— 它一订阅就会收到当前值，
+        // 避免这里先用默认值（enabled=false）做一次错误判断。
+
+        // 屏幕状态缓存：用广播维护，避免在事件回调里反复 IPC 查询
+        screenOn = runCatching {
+            getSystemService(PowerManager::class.java)?.isInteractive ?: true
+        }.getOrDefault(true)
+        runCatching {
+            registerReceiver(
+                screenStateReceiver,
+                IntentFilter().apply {
+                    addAction(Intent.ACTION_SCREEN_ON)
+                    addAction(Intent.ACTION_SCREEN_OFF)
+                },
+            )
+        }.onFailure { Log.w(TAG, "屏幕状态广播注册失败: ${it.message}") }
+    }
+
+    /** 前台服务当前是否在跑；用于幂等地跟着设置变化启停。 */
+    @Volatile
+    private var keepAliveForegroundRunning = false
+
+    /**
+     * 按设置启动或停止前台服务。
+     *
+     * HyperOS 会冻结长期后台的进程；前台服务把进程优先级抬出 cached 区间，
+     * 是保活的主力。但常驻通知会占着通知栏，所以给用户一个开关 ——
+     * 关掉后进程优先级下降，被冻结的概率变高，这一点设置页会写明。
+     */
+    private fun applyKeepAliveForeground(shouldRun: Boolean) {
+        if (shouldRun == keepAliveForegroundRunning) return
+
+        if (!shouldRun) {
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            keepAliveForegroundRunning = false
+            AutoLedgerKeepAlive.markForegroundRunning(false)
+            Log.d(TAG, "keepAlive foreground stopped by setting")
+            return
+        }
+
+        AutoLedgerKeepAlive.ensureChannel(this)
+        val notification = AutoLedgerKeepAlive.buildNotification(this)
+        val result = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    AutoLedgerKeepAlive.NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                )
+            } else {
+                startForeground(AutoLedgerKeepAlive.NOTIFICATION_ID, notification)
+            }
+        }.onFailure { Log.e(TAG, "startForeground 失败: ${it.message}", it) }
+
+        keepAliveForegroundRunning = result.isSuccess
+        AutoLedgerKeepAlive.markForegroundRunning(result.isSuccess)
+        Log.d(TAG, "keepAlive foreground=${result.isSuccess}")
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null) return
+        val packageName = event.packageName?.toString() ?: return
+        // 心跳：任何事件都刷新「最近活跃时间」，用于让冻结可被发现
+        AutoLedgerKeepAlive.onAccessibilityEvent()
+
+        // 前台窗口变化：卡片只在触发它的受支持应用里有效。
+        // 必须放在 enabled 判断**之前** —— 用户关掉总开关后残留的卡片也要能收起。
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            confirmController?.onWindowPackageChanged(packageName)
+        }
+
+        debugLog("event pkg=$packageName enabled=${settings.enabled} type=${event.eventType}")
+        if (!settings.enabled) return
+        if (!isSupportedPackage(packageName)) return
+
+        // 息屏 / 锁屏时整条链路短路：不截图、不 OCR、不碰数据库。
+        // 这里只读一个 volatile 字段，不做任何 IPC。
+        if (!screenOn) return
+
+        // 自家悬浮窗在渲染/动画时会持续产生内容变化事件。卡片显示期间把它们全部丢掉，
+        // 否则每次都要白截一张图做 OCR（只有 debug 版白名单含自家包名才会走到这里）。
+        if (packageName == this.packageName && confirmController?.isShowing == true) return
+
+        // OCR 初始化失败后要能自愈：ML Kit 首次加载在低内存时可能失败，
+        // 之前失败一次就永久「不可用」，只能靠用户手动关开开关 —— 真机上那就是「OCR 状态不可用」。
+        maybeRetryOcrSetup()
+
+        val clicked = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED
+        val kind = when (event.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> ScreenshotThrottle.EventKind.WINDOW_STATE_CHANGED
+            else -> ScreenshotThrottle.EventKind.CONTENT_CHANGED
+        }
+
+        // 微信在同一个 Activity 内翻页（聊天 → 账单列表 → 账单详情）只发内容变化事件。
+        // 两个信号用来识别「用户翻到了新页面」：
+        //   1. 点击 —— 翻页必然伴随点击，这是最可靠的
+        //   2. 页面类名变化 —— 但内容变化事件的 className 常常是 ViewGroup/LinearLayout
+        //      这种控件类名，所以在同一页面里也会来回变，必须把 android.* 前缀的排掉
+        val eventClass = event.className?.toString()?.takeIf { !it.startsWith("android.") }
+        val classChanged = eventClass != null && eventClass != lastEventClass
+        if (eventClass != null) lastEventClass = eventClass
+        debugLog("event class=$eventClass clicked=$clicked classChanged=$classChanged")
+
+        // 「换页」信号必须累积到真正判定那一刻：微信切页后会继续刷一串内容变化事件，
+        // 每次都 cancel 上一个 debounce 任务，如果只保留最后一次事件的标记，
+        // 点击带来的「换页」就被后面的内容事件冲掉了，结果又被 8 秒节流拦下（实测踩过）。
+        if (clicked || classChanged) {
+            pageChangePending = true
+            // **不再「有点击就收起卡片」。**
+            //
+            // 原意是「用户点了东西，上一页的卡片没意义」，但真机实测微信账单页会
+            // 自己产生合成点击（WebView 加载收尾、页面内动效），卡片刚弹出就被关掉，
+            // 紧接着又被下一次识别重新弹出 —— 表现出来就是卡片闪、识别看起来「乱」。
+            //
+            // 「已离开这个应用」由 onWindowPackageChanged 负责，
+            // 「返回列表」由卡片 20 秒超时兜底，都不依赖点击这个不可靠信号。
+        }
+
+        // 页面渲染往往连续触发多个事件，合并到一次识别；这同时是「页面已稳定」的判定。
+        //
+        // 去抖分两档：
+        //  - 用户主动操作（点击/换页）：页面已经跳完了，没必要再等 600ms —— 用短档
+        //  - 其余内容变化：可能是滚动/加载动画中，等长档避免无效判定
+        //
+        // 短档只对**用户明确动作**生效，所以不会让无效判定的次数明显上升。
+        val debounceMillis = if (clicked || classChanged) {
+            DEBOUNCE_AFTER_USER_ACTION_MILLIS
+        } else {
+            DEBOUNCE_MILLIS
+        }
+        debugLog("debounce=${debounceMillis}ms (clicked=$clicked classChanged=$classChanged)")
+
+        // 已有截图任务在执行时不要取消它：截一张全屏再丢掉纯属浪费，
+        // 而且会让用户在支付页多等一个完整周期。
+        if (captureInFlight) {
+            debugLog("capture in flight, coalesce event")
+            return
+        }
+
+        // 去抖：**不在这里创建协程**。
+        //
+        // 旧实现是 `pendingJob?.cancel()` + `scope.launch { }`，微信/支付宝里滚动时
+        // 每秒几十个事件就是几十次协程创建与取消 —— 这是发热的直接来源。
+        // 改成「覆盖待判定参数 + 重置一个复用 Runnable 的延时」，
+        // 事件再密也只是两次 Handler 调用，零对象分配。
+        pendingPackage = packageName
+        pendingKind = kind
+        mainHandler.removeCallbacks(pendingInspect)
+        mainHandler.postDelayed(pendingInspect, debounceMillis)
+    }
+
+    /** 去抖到期：真正开始一次识别。此时才创建协程（每秒至多一两次）。 */
+    private fun runInspect() {
+        val packageName = pendingPackage ?: return
+        val pageChanged = pageChangePending
+        pageChangePending = false
+        val kind = pendingKind
+        val pageChangedFlag = pageChanged
+        scope.launch { inspect(packageName, kind, pageChangedFlag) }
+    }
+
+    override fun onInterrupt() = Unit
+
+    override fun onDestroy() {
+        mainHandler.removeCallbacks(pendingInspect)
+        runCatching { unregisterReceiver(screenStateReceiver) }
+        confirmController?.release()
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+        AutoLedgerKeepAlive.markForegroundRunning(false)
+        runCatching { ocrEngine?.close() }
+        scope.cancel()
+        super.onDestroy()
+    }
+
+    /**
+     * 只认微信与支付宝，**debug 构建也一样**。
+     *
+     * 曾经为了在没装微信的机器上验证链路，debug 版放行了自家包名。
+     * 真机上代价很实在：本应用自己的 Compose 界面会持续产生无障碍事件，
+     * 这些事件被当成「待识别的页面」，截全屏做 OCR、还把自家包名写进了指纹
+     * （`com.afu.ledger|单号`）—— 待确认账单和去重记录全被污染。
+     *
+     * 真机上有微信和支付宝，模拟页没有存在价值；detector 层的 debug 放行
+     * 仍然保留给单元测试用，但运行时不再走这条路。
+     */
+    private fun isSupportedPackage(packageName: String): Boolean =
+        packageName in PaymentPageRules.supportedPackages
+
+    /**
+     * 恒为 null：不再允许自家包名走 OCR 通道（理由见 [isSupportedPackage]）。
+     * 保留这个参数是为了让 [AutoRecognitionEngine] 的签名与测试保持一致。
+     */
+    private val debugOcrPackage: String?
+        get() = null
+
+    private suspend fun inspect(
+        packageName: String,
+        kind: ScreenshotThrottle.EventKind,
+        pageChanged: Boolean,
+    ) {
+        val recognition = engine ?: return
+        captureInFlight = true
+        try {
+            val result = recognition.detect(
+                packageName = packageName,
+                kind = kind,
+                screenInteractive = isScreenInteractive(),
+                overlayShowing = confirmController?.isShowing == true,
+                ocrAllowed = settings.ocrEnabled,
+                pageChanged = pageChanged,
+            )
+            when (result) {
+                is AutoRecognitionEngine.EngineResult.Hit -> {
+                    // 分段耗时随命中一起进日志：排查「为什么慢」时不必再复现一次
+                    logger?.log(
+                        packageName = packageName,
+                        outcome = "识别命中",
+                        amountCents = result.draft.amount.cents,
+                        merchant = result.draft.merchant,
+                        detail = recognition.lastTiming?.summary(),
+                    )
+                    confirmController?.handleHit(result.draft)
+                }
+                is AutoRecognitionEngine.EngineResult.Missed -> {
+                    debugLog("miss ${result.reason.name} ${result.detail.orEmpty()}")
+                    logger?.logMiss(packageName, result.reason, result.detail)
+                }
+                AutoRecognitionEngine.EngineResult.Skipped ->
+                    debugLog("throttled ${recognition.throttleDecision()}")
+            }
+            recordOcrOutcome(recognition, result)
+        } finally {
+            captureInFlight = false
+        }
+    }
+
+    private fun recordOcrOutcome(
+        recognition: AutoRecognitionEngine,
+        result: AutoRecognitionEngine.EngineResult,
+    ) {
+        if (result is AutoRecognitionEngine.EngineResult.Skipped) return
+        val status = container?.ocrStatus ?: return
+        if (!settings.ocrEnabled || !status.state.value.available) return
+        // 分段耗时附着在状态里，供设置页展示「慢在哪一段」
+        val timing = recognition.lastTiming?.summary()
+        val outcome = when (result) {
+            is AutoRecognitionEngine.EngineResult.Hit -> "识别成功"
+            is AutoRecognitionEngine.EngineResult.Missed -> result.reason.label
+            AutoRecognitionEngine.EngineResult.Skipped -> return
+        }
+        status.recordOutcome(
+            elapsedMillis = recognition.lastTiming?.ocrMillis ?: -1L,
+            outcome = outcome,
+            detail = timing,
+        )
+    }
+
+    /**
+     * OCR 未就绪时按最小间隔重试初始化。
+     *
+     * 只在有受支持应用事件时触发，且 30 秒一次，避免反复加载模型拖慢页面。
+     */
+    private fun maybeRetryOcrSetup() {
+        if (!settings.ocrEnabled) return
+        if (engine?.ocrAvailable == true) return
+        val app = application as? AfuApplication ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastOcrSetupAttemptAt < OCR_SETUP_RETRY_MILLIS) return
+        lastOcrSetupAttemptAt = now
+        ensureOcrChannel(app.container)
+    }
+
+    /** 用户打开 OCR 开关后才加载模型：不开启就不必付出内存与解压成本。 */
+    private fun ensureOcrChannel(container: AppContainer) {        if (!ocrSetupStarted.compareAndSet(false, true)) {
+            debugLog("ocr setup already started")
+            return
+        }
+        debugLog("ocr setup begin")
+        scope.launch {
+            val channel = withContext(Dispatchers.IO) { buildOcrChannel(container) }
+            if (channel == null) {
+                ocrSetupStarted.set(false)
+                debugLog("ocr setup failed")
+            } else {
+                engine = AutoRecognitionEngine(this@AutoLedgerAccessibilityService, detector, channel, debugOcrPackage)
+                debugLog("ocr setup done")
+            }
+        }
+    }
+
+    private suspend fun buildOcrChannel(container: AppContainer): OcrTextChannel? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            container.ocrStatus.markUnavailable("系统版本低于 Android 11，不支持截图")
+            return null
+        }
+        return ocrSetupMutex.withLock {
+            // 用 ML Kit 的整页识别替代 PP-OCRv4 的「det + 逐行 rec」。
+            // 真实账单页 30 行文本时，后者光 rec 就要 1.0–1.3 秒；
+            // ML Kit 一次前向就出全部行，没有「逐行」这个阶段。
+            val mlKitEngine = MlKitOcrEngine()
+            if (!mlKitEngine.warmUp()) {
+                val reason = mlKitEngine.failureReason() ?: "OCR 引擎初始化失败"
+                mlKitEngine.close()
+                container.ocrStatus.markUnavailable(reason)
+                return@withLock null
+            }
+            ocrEngine = mlKitEngine
+            container.ocrStatus.markAvailable()
+            debugLog("ocr channel ready (mlkit)")
+            OcrTextChannel(
+                capturer = ScreenshotCapturer(this, captureExecutor),
+                engine = mlKitEngine,
+                throttle = ScreenshotThrottle(),
+            )
+        }
+    }
+
+    private fun isScreenInteractive(): Boolean {
+        val power = getSystemService(PowerManager::class.java)
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        if (power?.isInteractive != true) return false
+        return keyguard?.isKeyguardLocked != true
+    }
+
+    private fun debugLog(message: String) {
+        if (BuildConfig.DEBUG) Log.d(TAG, message)
+    }
+
+    /** 供悬浮窗里的「打开 App」回调使用。 */
+    fun openApp() {
+        runCatching {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+        confirmController?.hide()
+    }
+
+    private companion object {
+        const val TAG = "AutoLedger"
+
+        /** 内容变化事件的稳定判定时长：页面可能还在滚动/加载，多等一点避免无效判定。 */
+        const val DEBOUNCE_MILLIS = 600L
+
+        /**
+         * 用户主动操作（点击 / 页面标识变化）后的稳定判定时长。
+         *
+         * 用户点了「完成」或跳进账单页，页面已经跳完，不需要再等 600ms。
+         * 这是支付宝与微信识别延迟里最容易省掉的一段。
+         */
+        const val DEBOUNCE_AFTER_USER_ACTION_MILLIS = 180L
+
+        /** OCR 初始化失败后的重试间隔。 */
+        const val OCR_SETUP_RETRY_MILLIS = 30_000L
+    }
+}

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  debug 构建的无障碍服务配置：比正式版多一个**本应用自己的包名**。
+
+  原因：debug 构建下有一个内置的模拟账单页（在自家 App 里），
+  用来在没装微信/支付宝的机器上验证整条链路。若沿用正式版白名单，
+  系统根本不会把自家页面的事件送进来，模拟页就永远触发不了。
+
+  正式版（src/main）用最小白名单，不让 release 承担这份额外事件量。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewClicked"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagIncludeNotImportantViews|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
+    android:description="@string/auto_ledger_service_description"
+    android:isAccessibilityTool="true"
+    android:notificationTimeout="400"
+    android:packageNames="com.tencent.mm,com.eg.android.AlipayGphone"
+    tools:targetApi="s" />
