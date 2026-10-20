@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      强制移除第三方库带进来的网络权限。
+
+      ML Kit（以及 WorkManager）的库 Manifest 会声明 `INTERNET` 与
+      `ACCESS_NETWORK_STATE`，但本项目**不申请任何网络能力**，识别与入账全在本机完成。
+      ML Kit 用的是 bundled 版本，中文识别模型随 APK 分发，不触网；
+      移除权限后如果库内部尝试联网，只会拿到 SecurityException 并被我们的
+      `runCatching` 吞掉，不影响离线识别。
+
+      这两条必须留在这里：一旦哪次依赖升级又把权限带进来，`aapt2 dump permissions`
+      的核对会立刻发现，而不是悄悄变成「会联网的记账应用」。
+    -->
+    <uses-permission
+        android:name="android.permission.INTERNET"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE"
+        tools:node="remove" />
+
+    <!--
+      无障碍授权自愈用的受保护权限。
+
+      HyperOS 会在超级省电/清理后台/系统更新时把本服务从无障碍启用列表里移除，
+      用户看到的是「昨天还好好的今天不记账」。
+
+      这条权限**不会**由应用自己申请界面弹窗，只能由用户手动执行一条 adb 命令授予：
+          adb shell pm grant com.afu.ledger android.permission.WRITE_SECURE_SETTINGS
+      没授予时应用不做任何假装修复，只在设置页给出跳转入口与这条命令。
+
+      它只能改无障碍开关这类安全设置，不涉及网络、位置、通讯录。
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- 前台服务用于降低 HyperOS 冻结进程的概率；不涉及任何网络能力 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      申请电池优化豁免（Doze 白名单）。
+      定制 ROM 的省电策略会把应用置于「受限」状态，效果等同于 force-stop，
+      而无障碍权限会因此被系统剥离 —— 这才是「设置一次之后过阵子又失效」的真正原因。
+      这不是网络权限，只是免除省电限制。
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!--
+      定时记账的调度权限。
+
+      - RECEIVE_BOOT_COMPLETED：AlarmManager 的闹钟不跨重启保留，开机后必须重排；
+      - SCHEDULE_EXACT_ALARM：Android 12+ 的「闹钟和提醒」特殊权限，用户可关。
+        关掉时退化为不精确闹钟（允许几分钟到十几分钟延迟），到期期次仍会被补记，
+        功能不会失效。两者都不是网络权限。
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!-- 没有这条声明，Shizuku 会认为本应用「没装 Shizuku」而直接不可用 -->
+    <queries>
+        <package android:name="moe.shizuku.privileged.api" />
+    </queries>
+
+    <application
+        android:name=".AfuApplication"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AfuLedger">
+
+        <!--
+          Shizuku 的 provider。**这个不能省**：
+          Shizuku 靠它完成进程间握手，缺了它 ShizukuGuard.isAvailable() 永远返回 false，
+          整个「服务被划掉后自动写回」的能力就是死的。
+          （Tally 的 AndroidManifest 里同样是这一段声明。）
+        -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
+        <!--
+          关掉预测式返回（predictive back）的系统预览。
+
+          开着时，侧滑返回会让系统先把整个 Activity 缩成一个圆角卡片跟手移动，
+          同时 Compose Navigation 又播一遍自己的 popExit 位移动画，两者叠加的结果
+          就是「手势返回很生硬、点箭头返回却顺滑」。关掉后手势与点箭头走同一条路径，
+          动画完全由 NavHost 的 popExitTransition 控制。
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:enableOnBackInvokedCallback="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          自动记账：只声明无障碍服务，不申请 INTERNET / SYSTEM_ALERT_WINDOW / READ_SMS。
+          BIND_ACCESSIBILITY_SERVICE 由系统在用户授权后绑定，不是运行时权限。
+        -->
+        <service
+            android:name=".auto.AutoLedgerAccessibilityService"
+            android:exported="true"
+            android:foregroundServiceType="specialUse"
+            android:label="@string/auto_ledger_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the on-device payment recognition accessibility service responsive on ROMs that freeze background processes; no network use" />
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/auto_ledger_service" />
+        </service>
+
+        <!--
+          定时记账的闹钟与恢复广播。
+
+          exported=false：只由系统（闹钟/开机/改时间）与本应用触发，不对外开放。
+        -->
+        <receiver
+            android:name=".schedule.ScheduleAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".schedule.ScheduleRestoreReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

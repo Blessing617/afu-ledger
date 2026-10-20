@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">阿福记账</string>
+    <string name="auto_ledger_service_label">阿福记账 · 自动记账</string>
+    <string name="auto_ledger_service_description">读取微信、支付宝的支付成功页面，识别金额后弹出确认框，确认才会记一笔。微信页面不暴露无障碍文本，会截取屏幕画面并在本机做文字识别；截图只在内存中，识别完立即丢弃。全程不联网、不上传任何数据。</string>
+</resources>
