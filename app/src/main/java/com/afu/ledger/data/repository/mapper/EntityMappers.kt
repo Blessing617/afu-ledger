@@ -10,6 +10,7 @@ import com.afu.ledger.domain.model.AccountWithBalance
 import com.afu.ledger.domain.model.Category
 import com.afu.ledger.domain.model.Money
 import com.afu.ledger.domain.model.Transaction
+import com.afu.ledger.domain.model.TransactionSource
 import com.afu.ledger.domain.model.TransType
 
 /**
@@ -73,6 +74,9 @@ fun TransactionEntity.toDomain(): Transaction = Transaction(
     occurredAt = occurredAt,
     createdAt = createdAt,
     updatedAt = updatedAt,
+    source = parseSource(sourceType),
+    scheduleRuleId = scheduleRuleId,
+    backfilled = backfilled,
 )
 
 fun Transaction.toEntity(): TransactionEntity = TransactionEntity(
@@ -85,6 +89,9 @@ fun Transaction.toEntity(): TransactionEntity = TransactionEntity(
     occurredAt = occurredAt,
     createdAt = createdAt,
     updatedAt = updatedAt,
+    sourceType = source.name,
+    scheduleRuleId = scheduleRuleId,
+    backfilled = backfilled,
 )
 
 fun AccountBalance.toDomain(): AccountWithBalance = AccountWithBalance(
@@ -107,3 +114,6 @@ private fun parseAccountType(raw: String): AccountType =
 
 private fun parseTransType(raw: String): TransType =
     runCatching { TransType.valueOf(raw) }.getOrDefault(TransType.EXPENSE)
+
+private fun parseSource(raw: String): TransactionSource =
+    runCatching { TransactionSource.valueOf(raw) }.getOrDefault(TransactionSource.MANUAL)

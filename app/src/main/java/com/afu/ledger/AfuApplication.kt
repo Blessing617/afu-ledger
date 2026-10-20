@@ -11,6 +11,9 @@ import com.afu.ledger.auto.keepalive.AccessibilityWatcher
 import com.afu.ledger.auto.keepalive.AutoLedgerHealth
 import com.afu.ledger.auto.keepalive.AutoLedgerKeepAlive
 import com.afu.ledger.data.AppContainer
+import com.afu.ledger.schedule.ScheduleFallbackWorker
+import com.afu.ledger.schedule.ScheduleNotifications
+import com.afu.ledger.schedule.ScheduleScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +50,37 @@ class AfuApplication : Application() {
         }
 
         startAccessibilityWatch()
+
+        // 定时记账：启动即补算一次（可能错过期次），再为本期排闹钟，并挂上每日兜底任务。
+        applicationScope.launch { runDueSchedulesNow() }
+        ScheduleFallbackWorker.schedule(this)
+    }
+
+    /**
+     * 执行一次「到期检查 + 入账/落待确认 + 排下一次闹钟」。
+     *
+     * 闹钟、开机/改时间重启广播、每日兜底任务、回到应用这四个入口共用，
+     * 重复调用是安全的：规则游标与交易唯一索引共同保证幂等。
+     */
+    suspend fun runDueSchedulesNow() {
+        val report = runCatching { container.runDueSchedules.run() }.getOrNull()
+        runCatching {
+            ScheduleScheduler.scheduleNext(this, container.scheduleRuleRepository)
+        }
+        // 提醒型规则产生了新的待确认：发一条通知，别让它在后台静默积压
+        if (report != null) {
+            val pendingCount = container.pendingOccurrences.list().size
+            if (pendingCount > 0) {
+                ScheduleNotifications.notifyPending(this, pendingCount)
+            } else if (report.pendingCreated == 0) {
+                ScheduleNotifications.clear(this)
+            }
+        }
+    }
+
+    /** 非挂起入口，供 UI 在规则变动后请求一次补算 + 重排。 */
+    fun requestDueSchedules() {
+        applicationScope.launch { runDueSchedulesNow() }
     }
 
     /**

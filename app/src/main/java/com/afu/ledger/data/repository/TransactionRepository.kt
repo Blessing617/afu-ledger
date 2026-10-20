@@ -20,6 +20,15 @@ class TransactionRepository(
     suspend fun add(transaction: Transaction): Long =
         transactionDao.insert(transaction.toEntity())
 
+    /**
+     * 定时记账专用写入：命中 `(scheduleRuleId, occurredAt)` 唯一索引时返回 -1 而不是抛异常。
+     */
+    suspend fun addIgnoringDuplicate(transaction: Transaction): Long =
+        transactionDao.insertIgnoringDuplicate(transaction.toEntity())
+
+    suspend fun findByRule(ruleId: Long): List<Transaction> =
+        transactionDao.findByRule(ruleId).map { it.toDomain() }
+
     suspend fun update(transaction: Transaction) =
         transactionDao.update(transaction.toEntity())
 

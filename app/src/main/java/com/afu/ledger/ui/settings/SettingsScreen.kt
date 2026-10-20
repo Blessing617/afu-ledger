@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Category
+import androidx.compose.material.icons.rounded.EventRepeat
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Payments
@@ -75,6 +76,7 @@ fun SettingsScreen(
     wasEverEnabled: Boolean,
     onOpenAppearance: () -> Unit,
     onManageCategories: () -> Unit,
+    onOpenSchedules: () -> Unit,
     onAutoEnabledChange: (Boolean) -> Unit,
     onDefaultAccountChange: (Long?) -> Unit,
     onDefaultCategoryChange: (Long?) -> Unit,
@@ -114,6 +116,13 @@ fun SettingsScreen(
                         subtitle = "新增、重命名、换图标与颜色",
                         detail = "${expenseCategories.size} 个支出",
                         onClick = onManageCategories,
+                    )
+                    SettingDivider()
+                    SettingRow(
+                        icon = Icons.Rounded.EventRepeat,
+                        title = "定时记账",
+                        subtitle = "房租、订阅这类固定收支，到点自动记一笔",
+                        onClick = onOpenSchedules,
                     )
                 }
             }

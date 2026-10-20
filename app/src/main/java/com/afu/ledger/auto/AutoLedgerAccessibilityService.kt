@@ -149,6 +149,7 @@ class AutoLedgerAccessibilityService : AccessibilityService() {
             container = app.container,
             overlay = activeOverlay,
             deduper = DetectionDeduper(),
+            sessionDeduper = PaymentSessionDeduper(),
             processedBills = app.container.processedBills,
             scope = scope,
             settingsProvider = { settings },
