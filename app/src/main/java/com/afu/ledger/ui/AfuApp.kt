@@ -376,7 +376,7 @@ private fun AfuBottomBar(
             ) {
                 TabItem(bottomTabs[0], current, onSelect)
                 TabItem(bottomTabs[1], current, onSelect)
-                Spacer(Modifier.width(76.dp))
+                Spacer(Modifier.width(88.dp))
                 TabItem(bottomTabs[2], current, onSelect)
                 TabItem(bottomTabs[3], current, onSelect)
             }
@@ -386,7 +386,7 @@ private fun AfuBottomBar(
             sticker = style.cardStyle == com.afu.ledger.ui.theme.CardStyle.OUTLINED,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(y = (-18).dp),
+                .offset(y = (-22).dp),
         )
     }
 }
@@ -471,7 +471,9 @@ private fun AddButton(
 
     Box(
         modifier = modifier
-            .size(58.dp)
+            // 58dp 在加高后的底栏里显得「缩」；68dp 与 44dp 的标签圆章拉开层次，
+            // 也撑得住中央这个位置（参考常见记账 App 的中央按钮都在 64–72dp）
+            .size(68.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -504,13 +506,13 @@ private fun AddButton(
     ) {
         if (sticker) {
             // 大肥鱼主题下，中央按钮就是吉祥物本尊
-            MascotAvatar(size = 46.dp)
+            MascotAvatar(size = 54.dp)
         } else {
             Icon(
                 imageVector = Icons.Rounded.Add,
                 contentDescription = "记一笔",
                 tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(30.dp),
+                modifier = Modifier.size(34.dp),
             )
         }
     }
