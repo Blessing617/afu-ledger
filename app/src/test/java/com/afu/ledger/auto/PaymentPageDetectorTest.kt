@@ -92,6 +92,59 @@ class PaymentPageDetectorTest {
     // ---- 不该触发的情况 ----
 
     @Test
+    fun `支付宝支付成功结果页不入账`() {
+        // 真机 2026-10-20：这一页能凑够「付款方式 / 当前状态」两个强字段，
+        // 但它是结果页，不是账单详情页；同一笔付款会先在这个页面被识别一次。
+        val reason = miss(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.ALIPAY_PACKAGE,
+                    listOf(
+                        "支付成功", "¥20.00", "某人工智能公司", "付款方式",
+                        "账户余额", "当前状态", "支付成功", "完成",
+                        "支付有礼", "去参与", "回首页", "返回商家",
+                    ),
+                ),
+            ),
+        )
+        assertEquals(MissReason.PAYMENT_RESULT_PAGE, reason)
+    }
+
+    @Test
+    fun `结果页带交易单号仍按账单入账`() {
+        // 微信「当前状态 支付成功 + 交易单号」这类页面就是账单详情页，不能被结果页规则误杀
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.WECHAT_PACKAGE,
+                    listOf(
+                        "当前状态", "支付成功", "¥25.50", "瑞幸咖啡",
+                        "交易单号", "4500000576202610184019086744",
+                    ),
+                ),
+            ),
+        )
+        assertEquals(Money(2550), draft.amount)
+    }
+
+    @Test
+    fun `旧版账单无单号但有支付时间仍入账`() {
+        // 支付宝旧版账单页不渲染交易单号，但一定有「支付时间」——结果页规则不能误杀它
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.ALIPAY_PACKAGE,
+                    listOf(
+                        "账单详情", "天猫", "支出25元", "交易成功",
+                        "支付时间", "2026-10-19 18:01:22", "付款方式", "账户余额",
+                    ),
+                ),
+            ),
+        )
+        assertEquals(Money(2500), draft.amount)
+    }
+
+    @Test
     fun `非受支持应用直接跳过`() {
         assertEquals(
             MissReason.UNSUPPORTED_PACKAGE,
