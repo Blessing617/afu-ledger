@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 自适应图标背景：与前景角色自带的浅底一致，避免出现方形色块 -->
+    <color name="ic_launcher_background">#FAF5F9</color>
+
+    <!-- 启动窗口背景：浅色，避免冷启动闪黑屏 -->
+    <color name="launch_background">#FAF8FF</color>
+</resources>

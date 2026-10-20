@@ -1,0 +1,11 @@
+# id=alipay_mine
+# source=alipay
+# sourceKind=NODE
+# note=支付宝我的页，含账单/总资产/支付宝会员入口
+# matched=False
+# ---
+2994|928|9
+3123|140|首页
+3123|500|理财
+3123|860|消息
+3123|1220|我的
