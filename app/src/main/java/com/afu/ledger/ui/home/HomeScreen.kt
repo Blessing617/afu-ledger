@@ -29,9 +29,11 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.afu.ledger.domain.budget.BudgetProgress
 import com.afu.ledger.domain.model.Money
 import com.afu.ledger.ui.component.AfuButton
 import com.afu.ledger.ui.component.AfuCard
+import com.afu.ledger.ui.component.BudgetCard
 import com.afu.ledger.ui.component.EmptyState
 import com.afu.ledger.ui.component.SettingDivider
 import com.afu.ledger.ui.component.TransactionRow
@@ -65,8 +67,14 @@ fun HomeScreen(
     onOpenHistory: () -> Unit,
     onConfirmPending: (String) -> Unit = {},
     onIgnorePending: (String) -> Unit = {},
+    budgetProgress: List<BudgetProgress> = emptyList(),
+    onOpenBudgets: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // 首页只展示一个预算：有总预算就展示总预算，否则展示「最紧张」的那个分类预算。
+    val primaryBudget = budgetProgress.firstOrNull { it.budget.isTotalBudget }
+        ?: budgetProgress.maxByOrNull { it.ratio }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -79,6 +87,12 @@ fun HomeScreen(
     ) {
         item(key = "today") {
             TodayCard(uiState = uiState, onOpenHistory = onOpenHistory)
+        }
+
+        if (primaryBudget != null) {
+            item(key = "budget") {
+                BudgetCard(progress = primaryBudget, onClick = onOpenBudgets)
+            }
         }
 
         if (uiState.pendingBills.isNotEmpty()) {

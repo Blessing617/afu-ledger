@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.EventRepeat
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PieChart
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,7 @@ import com.afu.ledger.ui.component.LocalForceOpaqueCard
 import com.afu.ledger.auto.AutoLedgerSettings
 import com.afu.ledger.auto.OcrStatus
 import com.afu.ledger.auto.RecognitionEntry
+import com.afu.ledger.data.backup.DataStats
 import com.afu.ledger.data.prefs.ThemeSettings
 import com.afu.ledger.domain.model.Account
 import com.afu.ledger.domain.model.Category
@@ -77,6 +79,7 @@ fun SettingsScreen(
     onOpenAppearance: () -> Unit,
     onManageCategories: () -> Unit,
     onOpenSchedules: () -> Unit,
+    onOpenBudgets: () -> Unit,
     onAutoEnabledChange: (Boolean) -> Unit,
     onDefaultAccountChange: (Long?) -> Unit,
     onDefaultCategoryChange: (Long?) -> Unit,
@@ -84,6 +87,11 @@ fun SettingsScreen(
     onOcrEnabledChange: (Boolean) -> Unit,
     onHideKeepAliveNotificationChange: (Boolean) -> Unit,
     onClearLog: () -> Unit,
+    dataStats: DataStats,
+    dataBusy: Boolean,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
+    onClearAllData: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // 定时器在 LazyColumn 之外只订阅一次：放进 item 会让 5 秒一次的 tick
@@ -124,6 +132,13 @@ fun SettingsScreen(
                         subtitle = "房租、订阅这类固定收支，到点自动记一笔",
                         onClick = onOpenSchedules,
                     )
+                    SettingDivider()
+                    SettingRow(
+                        icon = Icons.Rounded.PieChart,
+                        title = "预算管理",
+                        subtitle = "给一段时间设个额度，主页看「还能花多少」",
+                        onClick = onOpenBudgets,
+                    )
                 }
             }
 
@@ -150,6 +165,19 @@ fun SettingsScreen(
                         onClearLog = onClearLog,
                     )
                 }
+            }
+
+            item(key = "data-header") {
+                SectionLabel("数据")
+            }
+            item(key = "data-group") {
+                DataManageSection(
+                    stats = dataStats,
+                    busy = dataBusy,
+                    onExportClick = onExportBackup,
+                    onImportClick = onImportBackup,
+                    onClearAllClick = onClearAllData,
+                )
             }
 
             item(key = "about") {

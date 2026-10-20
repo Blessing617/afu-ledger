@@ -315,9 +315,9 @@ OCR 执行 MUST NOT 发生在无障碍事件回调所在线程；识别期间 MU
 - THEN 数据库与 DataStore 中不保留该页面的原始文本快照
 - AND 仅保留交易本身与去重所需的最小指纹
 
-### Requirement: 小米 14 Pro / Android 16 适配
+### Requirement: Android 16 真机 / Android 16 适配
 
-系统 SHALL 在小米 14 Pro（Android 16 / HyperOS）上端到端可用：受限设置可解除、服务能保持运行、悬浮窗能正常显示、微信可通过截图 OCR 完成识别，且截图频次受节流约束不会持续占用资源。
+系统 SHALL 在Android 16 真机（Android 16 / HyperOS）上端到端可用：受限设置可解除、服务能保持运行、悬浮窗能正常显示、微信可通过截图 OCR 完成识别，且截图频次受节流约束不会持续占用资源。
 
 （原为：未包含截图 OCR 的端到端与截图频次约束）
 
@@ -329,14 +329,14 @@ OCR 执行 MUST NOT 发生在无障碍事件回调所在线程；识别期间 MU
 
 #### Scenario: 真机端到端
 
-- GIVEN 小米 14 Pro 已按引导完成授权
+- GIVEN Android 16 真机 已按引导完成授权
 - WHEN 用户完成一笔支付宝支付并停留在结果页
 - THEN 出现确认悬浮窗
 - AND 确认后首页出现对应交易，账户余额正确变化
 
 #### Scenario: 真机微信 OCR 端到端
 
-- GIVEN 小米 14 Pro 已按引导完成授权，截图 OCR 开关开启
+- GIVEN Android 16 真机 已按引导完成授权，截图 OCR 开关开启
 - WHEN 用户打开微信历史账单详情页并停留
 - THEN 出现确认悬浮窗，金额与页面显示一致
 - AND 点「忽略」后不产生交易

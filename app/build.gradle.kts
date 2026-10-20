@@ -1,10 +1,28 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
 }
+
+/**
+ * 发布签名。
+ *
+ * 仓库里只有 `keystore.properties.example`，真实配置与 .jks 都不入库。
+ * 存在的意义：签名固定 → 每次升级都是**覆盖安装**，数据不会被卸载清掉。
+ * 没有配置时回退 debug 签名（方便别人 clone 下来直接构建），但会打印警告。
+ */
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+val hasReleaseKeystore = keystorePropertiesFile.exists() &&
+    !keystoreProperties.getProperty("storeFile").isNullOrBlank()
 
 android {
     namespace = "com.afu.ledger"
@@ -14,14 +32,25 @@ android {
         applicationId = "com.afu.ledger"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.7.0"
+        versionCode = 8
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // OCR 运行时只保留目标机型（小米 14 Pro / arm64-v8a）的 ABI，避免 APK 体积翻倍。
+        // OCR 运行时只保留目标机型（arm64-v8a）的 ABI，避免 APK 体积翻倍。
         ndk {
             abiFilters += "arm64-v8a"
+        }
+    }
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
         }
     }
 
@@ -32,10 +61,15 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 自用应用：release 也用 debug 签名，这样 `assembleRelease` 出来的包能直接
-            // `adb install` 到自己的手机上，不必维护一套私钥。
-            // 发布到应用商店前必须换成正式签名。
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn(
+                    "WARN: 未找到 keystore.properties，release 包使用 debug 签名。" +
+                        "这个包无法覆盖安装到已装的正式包上（会 INSTALL_FAILED_UPDATE_INCOMPATIBLE）。"
+                )
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
@@ -47,6 +81,11 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    sourceSets {
+        // 迁移测试要从 assets 读已导出的 schema JSON；把 schemas 目录挂到 androidTest 的资源里
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
 }
 
@@ -80,6 +119,7 @@ dependencies {
 
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.coil.compose)
+    implementation(libs.kotlinx.serialization.json)
 
     // 保活：Shizuku 借 shell 权限把被系统移除的无障碍服务写回去（Tally 同款）。
     // 没有 Shizuku 时这部分完全降级，不影响其它功能。
@@ -95,4 +135,6 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    // 数据库迁移测试：用真实 SQLite 跑「旧 schema → 当前 schema」，防止升级后打不开
+    androidTestImplementation(libs.androidx.room.testing)
 }

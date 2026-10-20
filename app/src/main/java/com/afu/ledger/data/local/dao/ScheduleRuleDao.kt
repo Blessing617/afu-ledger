@@ -43,4 +43,10 @@ interface ScheduleRuleDao {
             "enabled = :enabled, updatedAt = :now WHERE id = :id"
     )
     suspend fun advance(id: Long, epochDay: Long, count: Int, enabled: Boolean, now: Long)
+
+    @Query("SELECT COUNT(*) FROM schedule_rules")
+    suspend fun count(): Int
+
+    @Query("DELETE FROM schedule_rules")
+    suspend fun deleteAll()
 }

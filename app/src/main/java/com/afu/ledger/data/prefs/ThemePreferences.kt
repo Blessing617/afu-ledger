@@ -61,6 +61,15 @@ class ThemePreferences(
         context.themeDataStore.edit { prefs ->
             if (uri.isNullOrBlank()) prefs.remove(KEY_BACKGROUND_URI) else prefs[KEY_BACKGROUND_URI] = uri
         }
+        // 同步准备首帧占位缩略图：下次打开应用时第一帧就能铺上背景（糊但有），
+        // 而不是先露一段纯色底再突然出现整张图。
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            if (uri.isNullOrBlank()) {
+                BackgroundThumbnail.clear(context)
+            } else {
+                BackgroundThumbnail.regenerate(context, uri)
+            }
+        }
     }
 
     suspend fun setBackgroundVisibility(value: Float) {
@@ -88,6 +97,9 @@ class ThemePreferences(
             prefs.remove(KEY_BG_VISIBILITY)
             prefs.remove(KEY_BG_BLUR)
             prefs.remove(KEY_BG_SCRIM)
+        }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            BackgroundThumbnail.clear(context)
         }
     }
 

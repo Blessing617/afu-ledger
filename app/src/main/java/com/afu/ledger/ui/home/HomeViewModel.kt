@@ -8,10 +8,12 @@ import com.afu.ledger.auto.ProcessedBillStore
 import com.afu.ledger.auto.RecordDetectedPaymentUseCase
 import com.afu.ledger.auto.RecordResult
 import com.afu.ledger.data.repository.AccountRepository
+import com.afu.ledger.data.repository.BudgetRepository
 import com.afu.ledger.data.repository.CategoryRepository
 import com.afu.ledger.data.repository.TransactionRepository
 import com.afu.ledger.domain.model.Account
 import com.afu.ledger.domain.model.Category
+import com.afu.ledger.domain.budget.BudgetProgress
 import com.afu.ledger.domain.model.Money
 import com.afu.ledger.domain.model.Transaction
 import com.afu.ledger.domain.model.TransType
@@ -20,9 +22,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -44,6 +49,8 @@ class HomeViewModel(
     private val transactionRepository: TransactionRepository,
     private val categoryRepository: CategoryRepository,
     private val accountRepository: AccountRepository,
+    /** 首页预算卡片：预算本身 + 本期已用。 */
+    private val budgetRepository: BudgetRepository,
     /** 待确认账单：弹窗被系统拦截时，用户从这里补记。 */
     private val pendingBillStore: PendingBillStore,
     private val processedBillStore: ProcessedBillStore,
@@ -60,6 +67,27 @@ class HomeViewModel(
     )
 
     private val filter = MutableStateFlow(DateFilter())
+
+    /**
+     * 首页预算进度。
+     *
+     * 交易一变就重算「本期已用」—— 记完一笔立刻能在卡片上看到剩余减少，
+     * 不用等下一次冷启动或切页。
+     */
+    val budgetProgress: StateFlow<List<BudgetProgress>> = combine(
+        budgetRepository.observeEnabled(),
+        transactionRepository.observeAll(),
+    ) { budgets, _ -> budgets }
+        .mapLatest { budgets ->
+            withContext(Dispatchers.Default) {
+                budgets.map { budgetRepository.progress(it) }
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList(),
+        )
 
     /** 待确认账单（DataStore 不是 Flow，手动刷新）。 */
     private val pending = MutableStateFlow<List<PendingBillStore.PendingBill>>(emptyList())

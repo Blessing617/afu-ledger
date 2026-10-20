@@ -8,9 +8,11 @@ import com.afu.ledger.auto.ProcessedBillStore
 import com.afu.ledger.auto.RecognitionLog
 import com.afu.ledger.auto.RecordDetectedPaymentUseCase
 import com.afu.ledger.auto.keepalive.KeepAliveStateStore
+import com.afu.ledger.data.backup.BackupManager
 import com.afu.ledger.data.local.AppDatabase
 import com.afu.ledger.data.prefs.ThemePreferences
 import com.afu.ledger.data.repository.AccountRepository
+import com.afu.ledger.data.repository.BudgetRepository
 import com.afu.ledger.data.repository.CategoryRepository
 import com.afu.ledger.data.repository.ScheduleRuleRepository
 import com.afu.ledger.data.repository.TransactionRepository
@@ -34,6 +36,20 @@ class AppContainer(context: Context) {
 
     /** 定时记账规则。 */
     val scheduleRuleRepository: ScheduleRuleRepository = ScheduleRuleRepository(database.scheduleRuleDao())
+
+    /** 预算：额度、周期、分类范围与本期已用。 */
+    val budgetRepository: BudgetRepository = BudgetRepository(database.budgetDao())
+
+    /**
+     * 账本导出 / 导入 / 清空。
+     *
+     * 数据库文件路径用来展示「当前占用多少体积」；拿不到就不显示。
+     */
+    val backupManager: BackupManager = BackupManager(
+        database = database,
+        categoryRepository = categoryRepository,
+        databaseFile = context.applicationContext.getDatabasePath(AppDatabase.DATABASE_NAME),
+    )
 
     /** 「提醒确认」型定时规则的待确认期次。 */
     val pendingOccurrences: PendingOccurrenceStore = PendingOccurrenceStore(context.applicationContext)

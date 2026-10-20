@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: 交互响应预算
-系统 SHALL 在小米 14 Pro（Android 16 / HyperOS）上满足下列响应预算，且这些数值 MUST 可被命令行复现测量：
+系统 SHALL 在Android 16 真机（Android 16 / HyperOS）上满足下列响应预算，且这些数值 MUST 可被命令行复现测量：
 
 - 冷启动到首帧可见 ≤ 800ms
 - 自动记账确认悬浮窗从「识别命中」到「可见」≤ 400ms
@@ -20,7 +20,7 @@
 - AND 该时间差被写入识别日志供查询
 
 #### Scenario: 冷启动预算
-- GIVEN 应用已安装在小米 14 Pro 上，进程未运行
+- GIVEN 应用已安装在Android 16 真机 上，进程未运行
 - WHEN 执行 `adb shell am start -W -n com.afu.ledger/.MainActivity`
 - THEN `TotalTime` ≤ 800ms
 

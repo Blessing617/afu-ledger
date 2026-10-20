@@ -3,6 +3,7 @@ package com.afu.ledger.ui.component
 import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,13 +16,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
+import com.afu.ledger.data.prefs.BackgroundThumbnail
 
 /**
  * 自定义背景层：图片 + 可调遮罩，加载完成时淡入而不是硬切。
@@ -45,15 +47,15 @@ fun BackgroundLayer(
     val fade = remember(uri) { Animatable(0f) }
 
     LaunchedEffect(uri, loaded) {
-        if (loaded) fade.animateTo(1f, animationSpec = tween(durationMillis = 200))
+        // 缓存命中时这一帧已经是全亮的；未命中时才需要这段淡入。
+        // 140ms 足够消除硬切感，又不至于让「图出来了」显得迟。
+        if (loaded) fade.animateTo(1f, animationSpec = tween(durationMillis = 140))
     }
 
-    // 原图解码：不设 size 限制，保持原始分辨率
-    val request = remember(uri) {
-        ImageRequest.Builder(context)
-            .data(uri)
-            .build()
-    }
+    // 按屏幕尺寸解码 + 固定内存缓存 key（理由见 BackgroundImageRequest）
+    val request = remember(uri) { backgroundImageRequest(context, uri) }
+    // 极小缩略图：解码只要几毫秒，先铺上，避免第一帧露出纯色底
+    val thumbnail = remember(uri) { BackgroundThumbnail.load(context)?.asImageBitmap() }
     val blurModifier = if (blur && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         Modifier.blur(20.dp)
     } else {
@@ -81,6 +83,18 @@ fun BackgroundLayer(
             // 图片就绪前铺主题底色，避免露出窗口黑底
             .background(background),
     ) {
+        // 占位缩略图：不淡入，第一帧就全亮（它很小，看起来只是一层模糊的底色）
+        thumbnail?.let { bitmap ->
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(blurModifier)
+                    .drawWithScrim(scrimAlpha, background),
+            )
+        }
         AsyncImage(
             model = request,
             contentDescription = null,

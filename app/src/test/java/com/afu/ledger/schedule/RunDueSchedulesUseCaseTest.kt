@@ -238,6 +238,14 @@ private class FakeAccountDao(private val items: MutableList<AccountEntity>) : Ac
     override suspend fun findById(id: Long): AccountEntity? = items.firstOrNull { it.id == id }
 
     override fun observeBalances(): Flow<List<AccountBalance>> = flowOf(emptyList())
+
+    override suspend fun findAll(): List<AccountEntity> = items.toList()
+
+    override suspend fun count(): Int = items.size
+
+    override suspend fun deleteAll() {
+        items.clear()
+    }
 }
 
 private class FakeCategoryDao(private val items: MutableList<CategoryEntity>) : CategoryDao {
@@ -268,6 +276,12 @@ private class FakeCategoryDao(private val items: MutableList<CategoryEntity>) : 
     override suspend fun count(): Int = items.size
 
     override suspend fun countUsage(categoryId: Long): Int = 0
+
+    override suspend fun findAll(): List<CategoryEntity> = items.toList()
+
+    override suspend fun deleteAll() {
+        items.clear()
+    }
 }
 
 private class FakeScheduleRuleDao(val items: MutableList<ScheduleRuleEntity>) : ScheduleRuleDao {
@@ -307,6 +321,12 @@ private class FakeScheduleRuleDao(val items: MutableList<ScheduleRuleEntity>) : 
             )
         }
     }
+
+    override suspend fun count(): Int = items.size
+
+    override suspend fun deleteAll() {
+        items.clear()
+    }
 }
 
 private class FakeTransactionDao(val items: MutableList<TransactionEntity>) : TransactionDao {
@@ -340,6 +360,15 @@ private class FakeTransactionDao(val items: MutableList<TransactionEntity>) : Tr
     override suspend fun findById(id: Long): TransactionEntity? = items.firstOrNull { it.id == id }
 
     override suspend fun sumByType(type: String, fromInclusive: Long, toExclusive: Long): Long = 0L
+
+    override suspend fun count(): Int = items.size
+
+    override suspend fun page(limit: Int, offset: Int): List<TransactionEntity> =
+        items.sortedBy { it.id }.drop(offset).take(limit)
+
+    override suspend fun deleteAll() {
+        items.clear()
+    }
 }
 
 private class FakePendingStore : PendingOccurrenceSink {
