@@ -412,8 +412,10 @@ private fun androidx.compose.foundation.layout.RowScope.TabItem(
     ) {
         Box(
             modifier = Modifier
-                .size(if (sticker) 38.dp else 40.dp, if (sticker) 38.dp else 26.dp)
-                .clip(if (sticker) CircleShape else RoundedCornerShape(13.dp))
+                // 栏高抬到 80dp 之后，原来 38dp 的圆章显得空、图标更小；
+                // 放大到 44dp / 图标 25dp，与中央按钮（直径 56dp）的比例更接近
+                .size(if (sticker) 44.dp else 46.dp, if (sticker) 44.dp else 30.dp)
+                .clip(if (sticker) CircleShape else RoundedCornerShape(15.dp))
                 .background(
                     when {
                         sticker && selected -> MaterialTheme.colorScheme.surface
@@ -438,12 +440,12 @@ private fun androidx.compose.foundation.layout.RowScope.TabItem(
                 imageVector = tab.icon,
                 contentDescription = null,
                 tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(if (sticker) 21.dp else 20.dp),
+                modifier = Modifier.size(if (sticker) 25.dp else 23.dp),
             )
         }
         Text(
             text = tab.label,
-            fontSize = 11.sp,
+            fontSize = 11.5.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
         )
