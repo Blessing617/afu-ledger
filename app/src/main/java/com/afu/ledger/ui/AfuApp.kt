@@ -368,8 +368,10 @@ private fun AfuBottomBar(
                     .navigationBarsPadding()
                     // 曲面屏的左右两侧是弯的：「记账」「我的」贴边时文字会落在弯曲区被吃掉。
                     // 整条内缩 20dp，背景仍然铺满，视觉上不影响，但文字离开了危险区。
-                    .padding(horizontal = 20.dp)
-                    .height(64.dp),
+                    // 底部再留 8dp：曲面屏的下边缘也会吃掉贴底的标签文字，
+                    // 配合 80dp 的栏高把文字整体抬起约 12dp。
+                    .height(80.dp)
+                    .padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TabItem(bottomTabs[0], current, onSelect)
