@@ -410,6 +410,15 @@ private class BottomBarShape(
             // 两侧到底；底部贴屏幕，不再做圆角
             lineTo(size.width, size.height)
             lineTo(0f, size.height)
+            // 左上圆角：不补这一段，close() 会把左下角直接斜连回起点，
+            // 左端就会变成一个斜切角 —— 上一版看起来「不对称」就是这个原因
+            lineTo(0f, c)
+            arcTo(
+                rect = androidx.compose.ui.geometry.Rect(0f, 0f, 2 * c, 2 * c),
+                startAngleDegrees = 180f,
+                sweepAngleDegrees = 90f,
+                forceMoveTo = false,
+            )
             close()
         }
         return androidx.compose.ui.graphics.Outline.Generic(path)
@@ -466,7 +475,7 @@ private fun AfuBottomBar(
                 // 底部再留 8dp：曲面屏的下边缘也会吃掉贴底的标签文字，
                 // 配合 80dp 的栏高把文字整体抬起约 12dp。
                 .height(80.dp)
-                .padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+                .padding(start = 30.dp, end = 30.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TabItem(bottomTabs[0], current, onSelect)
@@ -500,6 +509,9 @@ private fun androidx.compose.foundation.layout.RowScope.TabItem(
     Column(
         modifier = Modifier
             .weight(1f)
+            // 涟漪必须裁成圆角，否则点击时是一个矩形水波纹，
+            // 和圆润的底栏、圆形选中态对不上
+            .clip(RoundedCornerShape(18.dp))
             .clickable { onSelect(tab.route) }
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
