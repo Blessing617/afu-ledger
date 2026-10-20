@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -339,11 +340,87 @@ fun AfuApp(container: AppContainer) {
 }
 
 /**
- * 底部栏：四个标签 + 中央凸起的记账按钮。
+ * 底部导航的形状：顶部左右圆角，中央给记账按钮挖一个**平滑**的圆弧凹槽。
  *
- * 中央按钮用 `offset` 上移 18dp 而不是做一层额外的自定义布局：
- * 它仍然属于 bottomBar 的一部分（Scaffold 据此给内容留出高度），
- * 凸出的那一截压在内容上，是刻意的。
+ * ## 为什么不是「半圆直接接到直线上」
+ *
+ * 半圆在栏顶的切线与水平线垂直，直线接半圆必然是一个直角折角 —— 上一版看起来
+ * 就像「白条上被抠了个洞」。这里在直线与凹槽之间加一段外凸过渡曲线（三次贝塞尔），
+ * 让切线从水平平滑转到竖直；凹槽本身用两段圆弧近似把按钮兜住。
+ * 结果是一条连续的 S 形曲线，没有折角。
+ *
+ * 凹槽圆心刻意对齐按钮圆心（栏顶下方 [notchLift]），按钮坐进去四周留 4dp 的呼吸缝。
+ */
+private class BottomBarShape(
+    private val corner: Dp = 30.dp,
+    private val notchRadius: Dp = 42.dp,
+    private val notchLift: Dp = 18.dp,
+    private val transition: Dp = 16.dp,
+) : androidx.compose.ui.graphics.Shape {
+
+    override fun createOutline(
+        size: androidx.compose.ui.geometry.Size,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        density: androidx.compose.ui.unit.Density,
+    ): androidx.compose.ui.graphics.Outline {
+        val c = with(density) { corner.toPx() }
+        val r = with(density) { notchRadius.toPx() }
+        val lift = with(density) { notchLift.toPx() }
+        val e = with(density) { transition.toPx() }
+        val cx = size.width / 2f
+        // 三次贝塞尔逼近圆弧的经典系数
+        val k = 0.5523f
+
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(c, 0f)
+            // 顶部直线到凹槽左侧的过渡起点
+            lineTo(cx - r - e, 0f)
+            // 外凸过渡：切线从水平转到竖直
+            cubicTo(
+                cx - r - e + e * k, 0f,
+                cx - r, lift - lift * k,
+                cx - r, lift,
+            )
+            // 凹槽左半弧（下到最低点）
+            cubicTo(
+                cx - r, lift + r * k,
+                cx - r * k, lift + r,
+                cx, lift + r,
+            )
+            // 凹槽右半弧（回到右侧）
+            cubicTo(
+                cx + r * k, lift + r,
+                cx + r, lift + r * k,
+                cx + r, lift,
+            )
+            // 外凸过渡返回顶部直线
+            cubicTo(
+                cx + r, lift - lift * k,
+                cx + r + e - e * k, 0f,
+                cx + r + e, 0f,
+            )
+            // 右上圆角
+            lineTo(size.width - c, 0f)
+            arcTo(
+                rect = androidx.compose.ui.geometry.Rect(size.width - 2 * c, 0f, size.width, 2 * c),
+                startAngleDegrees = 270f,
+                sweepAngleDegrees = 90f,
+                forceMoveTo = false,
+            )
+            // 两侧到底；底部贴屏幕，不再做圆角
+            lineTo(size.width, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+        return androidx.compose.ui.graphics.Outline.Generic(path)
+    }
+}
+
+/**
+ * 底部栏：四个标签 + 嵌进凹槽的记账按钮。
+ *
+ * 中央按钮用 `offset` 微微上移，仍然属于 bottomBar 的一部分
+ * （Scaffold 据此给内容留出高度）。
  */
 @Composable
 private fun AfuBottomBar(
@@ -352,41 +429,59 @@ private fun AfuBottomBar(
     onAdd: () -> Unit,
 ) {
     val style = LocalThemeStyle.current
+    val sticker = style.cardStyle == com.afu.ledger.ui.theme.CardStyle.OUTLINED
+    val barShape = remember { BottomBarShape() }
     Box(modifier = Modifier.fillMaxWidth()) {
-        Column {
-            // 与内容之间一条细线，避免白色底栏在彩色主题上像一块贴上去的白板
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(0.6.dp)
-                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)),
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
-                    .navigationBarsPadding()
-                    // 曲面屏的左右两侧是弯的：「记账」「我的」贴边时文字会落在弯曲区被吃掉。
-                    // 整条内缩 20dp，背景仍然铺满，视觉上不影响，但文字离开了危险区。
-                    // 底部再留 8dp：曲面屏的下边缘也会吃掉贴底的标签文字，
-                    // 配合 80dp 的栏高把文字整体抬起约 12dp。
-                    .height(80.dp)
-                    .padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TabItem(bottomTabs[0], current, onSelect)
-                TabItem(bottomTabs[1], current, onSelect)
-                Spacer(Modifier.width(88.dp))
-                TabItem(bottomTabs[2], current, onSelect)
-                TabItem(bottomTabs[3], current, onSelect)
-            }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                // 阴影让「栏浮在内容之上」这件事看得见，凹槽的弧线也跟着有了层次。
+                // 颜色用中性灰而不是主色：粉色阴影会在白底上糊成一片脏晕。
+                .shadow(
+                    elevation = if (sticker) 8.dp else 10.dp,
+                    shape = barShape,
+                    clip = false,
+                    ambientColor = Color.Black.copy(alpha = 0.10f),
+                    spotColor = Color.Black.copy(alpha = 0.16f),
+                )
+                .background(
+                    // 不透明：半透明白压在浅色页面上，凹槽轮廓会糊掉看不见
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = barShape,
+                )
+                .then(
+                    // 浅色主题下补一条极淡的描边，把「栏」和「页面」分开；
+                    // 贴纸主题用更明显的描边，和它的卡片语言一致
+                    Modifier.border(
+                        width = if (sticker) 2.dp else 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(
+                            alpha = if (sticker) 0.7f else 0.18f,
+                        ),
+                        shape = barShape,
+                    ),
+                )
+                .navigationBarsPadding()
+                // 曲面屏的左右两侧是弯的：「记账」「我的」贴边时文字会落在弯曲区被吃掉。
+                // 整条内缩 20dp，背景仍然铺满，视觉上不影响，但文字离开了危险区。
+                // 底部再留 8dp：曲面屏的下边缘也会吃掉贴底的标签文字，
+                // 配合 80dp 的栏高把文字整体抬起约 12dp。
+                .height(80.dp)
+                .padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TabItem(bottomTabs[0], current, onSelect)
+            TabItem(bottomTabs[1], current, onSelect)
+            Spacer(Modifier.width(116.dp))
+            TabItem(bottomTabs[2], current, onSelect)
+            TabItem(bottomTabs[3], current, onSelect)
         }
         AddButton(
             onClick = onAdd,
             sticker = style.cardStyle == com.afu.ledger.ui.theme.CardStyle.OUTLINED,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(y = (-22).dp),
+                // 坐在凹槽里：顶部略高于栏顶 6dp，不是整块浮在外面
+                .offset(y = (-16).dp),
         )
     }
 }
@@ -481,8 +576,9 @@ private fun AddButton(
             .shadow(
                 elevation = if (sticker) 6.dp else 10.dp,
                 shape = CircleShape,
-                ambientColor = if (sticker) MaterialTheme.colorScheme.outline else primary,
-                spotColor = if (sticker) MaterialTheme.colorScheme.outline else primary,
+                // 阴影用中性灰：主色阴影在白栏上会晕成一片粉雾，看着发脏
+                ambientColor = Color.Black.copy(alpha = 0.12f),
+                spotColor = Color.Black.copy(alpha = 0.20f),
             )
             .clip(CircleShape)
             .background(if (sticker) MaterialTheme.colorScheme.surface else primary)
