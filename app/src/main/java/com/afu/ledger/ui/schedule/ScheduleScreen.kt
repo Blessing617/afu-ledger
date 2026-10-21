@@ -7,6 +7,11 @@ import androidx.compose.foundation.background
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +19,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,6 +30,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,6 +63,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,9 +71,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -89,10 +101,14 @@ import com.afu.ledger.ui.component.AfuButton
 import com.afu.ledger.ui.component.AfuMotion
 import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.component.IconChoiceRow
+import com.afu.ledger.ui.component.pressScale
 import com.afu.ledger.ui.component.rememberMotionEnabled
+import com.afu.ledger.ui.component.rememberTapHaptic
+import com.afu.ledger.ui.component.repeatOnPress
 import com.afu.ledger.ui.component.accountIcon
 import com.afu.ledger.ui.component.categoryIcon
 import com.afu.ledger.ui.theme.CapsuleShape
+import com.afu.ledger.ui.theme.LocalThemeStyle
 import com.afu.ledger.ui.theme.Spacing
 import com.afu.ledger.util.MoneyFormatter
 import java.time.DayOfWeek
@@ -437,7 +453,7 @@ private fun ScheduleEditorPage(
     LaunchedEffect(Unit) {
         if (appear.value < 1f) {
             // 整页用 sheet 档弹簧（阻尼 0.8）：只回弹一点点，不会把整块内容晃出底色
-            appear.animateTo(1f, AfuMotion.sheet())
+            appear.animateTo(1f, AfuMotion.panelEnter())
         }
     }
 
@@ -546,22 +562,22 @@ private fun ScheduleEditorPage(
             decorFitsSystemWindows = false,
         ),
     ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    // 从下方轻轻推上来；透明度同步，避免边缘露底
-                    val p = appear.value
-                    translationY = (1f - p) * size.height * 0.10f
-                    alpha = p.coerceIn(0f, 1f)
-                    val scale = 0.985f + 0.015f * p
-                    scaleX = scale
-                    scaleY = scale
-                },
-            color = MaterialTheme.colorScheme.background,
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter,
         ) {
-            // 全屏编辑器不需要对话框的灰色遮罩：它会让状态栏变成一条脏灰色。
-            // 铺满状态栏后还要把状态栏图标改回深色，否则浅色背景上是白字，看不见。
+            val style = LocalThemeStyle.current
+            val dismissThresholdPx = with(LocalDensity.current) { 120.dp.toPx() }
+            var dragOffset by remember { mutableFloatStateOf(0f) }
+
+            // 遮罩：与预算面板一致 —— 页面变暗，但**不可点击关闭**
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = 0.30f * (1f - appear.value.coerceIn(0f, 1f)) }
+                    .background(MaterialTheme.colorScheme.onSurface),
+            )
+
             val view = LocalView.current
             SideEffect {
                 runCatching {
@@ -570,21 +586,67 @@ private fun ScheduleEditorPage(
                     // 打开编辑器时不要自动弹系统键盘：金额输入框会抢到窗口焦点，
                     // 键盘一上来就挡住半屏，把「分区浏览」变成了「先关键盘」。
                     window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
-                    if (window != null) {
-                        WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = true
-                    }
                 }
             }
+
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding(),
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.94f)
+                    .graphicsLayer {
+                        // 与预算 / 记账面板同一套进场：位移只到就位，过冲转成以底边为锚的轻微缩放
+                        translationY = (1f - appear.value.coerceAtMost(1f)) * size.height + dragOffset
+                        val overshoot = (appear.value - 1f).coerceAtLeast(0f)
+                        val bounce = 1f + overshoot * 0.35f
+                        scaleX = bounce
+                        scaleY = bounce
+                        transformOrigin = TransformOrigin(0.5f, 1f)
+                    }
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = style.containerCorner,
+                            topEnd = style.containerCorner,
+                        ),
+                    )
+                    .background(MaterialTheme.colorScheme.surface),
             ) {
+                // 拖拽条：与预算面板同一位置与手感
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(24.dp)
+                        .draggable(
+                            orientation = Orientation.Vertical,
+                            state = rememberDraggableState { delta ->
+                                scope.launch {
+                                    dragOffset = (dragOffset + delta).coerceAtLeast(0f)
+                                }
+                            },
+                            onDragStopped = {
+                                scope.launch {
+                                    if (dragOffset > dismissThresholdPx) {
+                                        dismiss()
+                                    } else {
+                                        dragOffset = 0f
+                                    }
+                                }
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 40.dp, height = 4.dp)
+                            .clip(CapsuleShape)
+                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                    )
+                }
+
                 // 顶栏只留关闭：保存只放在底部主按钮一处，避免两个等价入口
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = Spacing.xs, end = Spacing.sm, top = Spacing.sm),
+                        .padding(start = Spacing.xs, end = Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = { dismiss() }) {
@@ -771,10 +833,12 @@ private fun ScheduleEditorPage(
                             modifier = Modifier.padding(horizontal = Spacing.lg),
                         )
 
+                        Spacer(Modifier.height(Spacing.xs))
+
                         when (endMode) {
                             EndMode.NEVER -> Text(
-                                text = "一直执行，直到你手动暂停或删除这条规则",
-                                style = MaterialTheme.typography.bodySmall,
+                                text = "一直执行到手动暂停",
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = Spacing.xl),
                             )
@@ -990,7 +1054,7 @@ private fun FieldLabel(text: String) {
     )
 }
 
-/** 分类网格：4 列圆形图标，与记账面板同一套视觉。 */
+/** 分类条：横向一行、圆形图标，与账户条同构；9 个分类不再铺成三行把面板撑满。 */
 @Composable
 private fun CategoryPicker(
     categories: List<Category>,
@@ -1006,61 +1070,50 @@ private fun CategoryPicker(
         )
         return
     }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 236.dp)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = Spacing.lg),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = Spacing.lg),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        categories.chunked(4).forEach { rowItems ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        items(categories, key = { it.id }) { category ->
+            val selected = category.id == selectedId
+            val accent = Color(category.colorArgb)
+            Column(
+                modifier = Modifier
+                    .width(64.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(
+                        if (selected) accent.copy(alpha = 0.12f) else Color.Transparent,
+                    )
+                    .clickable { onSelect(category.id) }
+                    .padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                rowItems.forEach { category ->
-                    val selected = category.id == selectedId
-                    val accent = Color(category.colorArgb)
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(
-                                if (selected) accent.copy(alpha = 0.12f) else Color.Transparent,
-                            )
-                            .clickable { onSelect(category.id) }
-                            .padding(vertical = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(if (selected) 40.dp else 36.dp)
-                                .clip(CircleShape)
-                                .background(accent.copy(alpha = 0.16f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = categoryIcon(category.iconKey),
-                                contentDescription = null,
-                                tint = accent,
-                                modifier = Modifier.size(19.dp),
-                            )
-                        }
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            text = category.name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (selected) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            maxLines = 1,
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .size(if (selected) 40.dp else 36.dp)
+                        .clip(CircleShape)
+                        .background(accent.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = categoryIcon(category.iconKey),
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(19.dp),
+                    )
                 }
-                repeat(4 - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = category.name,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                )
             }
         }
     }
@@ -1171,9 +1224,15 @@ private fun StepButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val source = remember { MutableInteractionSource() }
+    val haptic = rememberTapHaptic()
+    val scope = rememberCoroutineScope()
+    var press by remember { mutableStateOf<PressInteraction.Press?>(null) }
+
     Box(
         modifier = Modifier
             .size(32.dp)
+            .pressScale(source, pressedScale = 0.86f)
             .clip(CircleShape)
             .background(
                 if (enabled) {
@@ -1183,7 +1242,28 @@ private fun StepButton(
                     MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                 },
             )
-            .clickable(enabled = enabled, onClick = onClick),
+            // 按住连续加减：间隔 / 几号 / 期数这类参数不需要一下一下点几十次
+            .repeatOnPress(
+                enabled = enabled,
+                onPress = {
+                    if (press == null) {
+                        haptic()
+                        val interaction = PressInteraction.Press(Offset.Zero)
+                        press = interaction
+                        scope.launch { source.emit(interaction) }
+                    }
+                    onClick()
+                },
+                onRelease = {
+                    press?.let { interaction ->
+                        scope.launch { source.emit(PressInteraction.Release(interaction)) }
+                    }
+                    press = null
+                },
+                firstDelayMs = 320L,
+                accelerateMs = 10L,
+                minIntervalMs = 40L,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
