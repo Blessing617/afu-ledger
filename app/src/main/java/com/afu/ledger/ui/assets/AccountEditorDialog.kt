@@ -86,9 +86,13 @@ fun AccountEditorDialog(
     var colorArgb by remember { mutableLongStateOf(existing?.colorArgb ?: accountColors.first()) }
     var iconKey by remember { mutableStateOf(existing?.iconKey ?: AvailableAccountIcons.first()) }
 
+    // 余额为空按 0 处理；填了内容但解析不了（超 9 位整数、多个小数点等）必须拦住，
+    // 不能静默退回 0 —— 那会把用户刚输的余额直接抹掉。
+    val parsedBalance = if (balanceInput.isBlank()) Money.ZERO else Money.parseYuan(balanceInput)
+    val balanceValid = parsedBalance != null
     val submit = {
-        val balance = Money.parseYuan(balanceInput.ifBlank { "0" }) ?: Money.ZERO
-        if (name.isNotBlank()) {
+        val balance = parsedBalance
+        if (name.isNotBlank() && balance != null) {
             onConfirm(name, type, balance, colorArgb, iconKey)
         }
     }
@@ -180,6 +184,14 @@ fun AccountEditorDialog(
                     prefix = { Text("¥") },
                     singleLine = true,
                     shape = InputShape,
+                    isError = balanceInput.isNotBlank() && !balanceValid,
+                    supportingText = if (balanceInput.isNotBlank() && !balanceValid) {
+                        {
+                            Text("金额需为数字，最多 9 位整数、2 位小数")
+                        }
+                    } else {
+                        null
+                    },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Decimal,
                         imeAction = ImeAction.Done,
@@ -268,14 +280,15 @@ fun AccountEditorDialog(
             }
         },
         confirmButton = {
+            val canSave = name.isNotBlank() && balanceValid
             TextButton(
                 onClick = submit,
-                enabled = name.isNotBlank(),
+                enabled = canSave,
             ) {
                 Text(
                     text = "保存",
                     fontWeight = FontWeight.SemiBold,
-                    color = if (name.isNotBlank()) {
+                    color = if (canSave) {
                         MaterialTheme.colorScheme.primary
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)

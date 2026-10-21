@@ -231,6 +231,13 @@ private class FakeAccountDao(private val items: MutableList<AccountEntity>) : Ac
         items.removeAll { it.id == id }
     }
 
+    override suspend fun nextSortOrder(): Int = items.size
+
+    override suspend fun setSortOrder(id: Long, sortOrder: Int) {
+        val index = items.indexOfFirst { it.id == id }
+        if (index >= 0) items[index] = items[index].copy(sortOrder = sortOrder)
+    }
+
     override fun observeAll(): Flow<List<AccountEntity>> = flowOf(items.toList())
 
     override fun observeActive(): Flow<List<AccountEntity>> = flowOf(items.filter { !it.archived })

@@ -104,4 +104,36 @@ class PaymentSessionDeduperTest {
         assertFalse(deduper.isDuplicate(draft(merchant = "某人工智能公司")))
         assertTrue(deduper.isDuplicate(draft(merchant = null)))
     }
+
+    @Test
+    fun `确认入账后同笔的账单页即使过了会话窗口也不弹`() {
+        var now = 1_000L
+        val deduper = PaymentSessionDeduper(clock = { now })
+        val resultPage = draft(tradeNo = null)
+        deduper.markHandled(resultPage)
+
+        // 用户确认后过了 5 分钟才点进账单详情页：会话窗口（120 秒）早已过期
+        now += 5 * 60_000L
+        assertTrue(deduper.isDuplicate(draft(tradeNo = "4500abc")))
+    }
+
+    @Test
+    fun `忽略后同笔账单页也不再打扰`() {
+        var now = 1_000L
+        val deduper = PaymentSessionDeduper(clock = { now })
+        deduper.markHandled(draft())
+
+        now += 3 * 60_000L
+        assertTrue(deduper.isDuplicate(draft(tradeNo = "4500abc")))
+    }
+
+    @Test
+    fun `已处理窗口过期后仍然可以记新的一笔`() {
+        var now = 1_000L
+        val deduper = PaymentSessionDeduper(clock = { now })
+        deduper.markHandled(draft())
+
+        now += PaymentSessionDeduper.HANDLED_WINDOW_MILLIS + 1
+        assertFalse(deduper.isDuplicate(draft()))
+    }
 }

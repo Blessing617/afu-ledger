@@ -27,6 +27,42 @@ class MoneyTest {
     }
 
     @Test
+    fun `解析带千分位逗号的金额`() {
+        // 预算编辑会预填 `3,000.00`，这里必须能解析，否则保存按钮永远灰着
+        assertEquals(Money(300000), Money.parseYuan("3,000.00"))
+        assertEquals(Money(123456789), Money.parseYuan("1,234,567.89"))
+        assertEquals(Money(-123400), Money.parseYuan("-1,234.00"))
+    }
+
+    @Test
+    fun `解析带首尾空格与前导加号`() {
+        assertEquals(Money(1234), Money.parseYuan("  12.34  "))
+        assertEquals(Money(2500), Money.parseYuan("+25.00"))
+    }
+
+    @Test
+    fun `小数部分带逗号返回 null`() {
+        assertNull(Money.parseYuan("12.3,4"))
+    }
+
+    @Test
+    fun `整数九位可解析`() {
+        assertEquals(Money(999_999_999_99L), Money.parseYuan("999,999,999.99"))
+    }
+
+    @Test
+    fun `整数超过九位返回 null`() {
+        assertNull(Money.parseYuan("1,000,000,000"))
+        assertNull(Money.parseYuan("1234567890.00"))
+    }
+
+    @Test
+    fun `千分位位置不严谨也按容错接受`() {
+        assertEquals(Money(123400), Money.parseYuan("1,234.00"))
+        assertEquals(Money(12300), Money.parseYuan("1,23.00"))
+    }
+
+    @Test
     fun `空串返回 null`() {
         assertNull(Money.parseYuan(""))
         assertNull(Money.parseYuan("   "))

@@ -2,6 +2,7 @@ package com.afu.ledger.ui.assets
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.afu.ledger.data.prefs.AssetPreferences
 import com.afu.ledger.data.repository.AccountRepository
 import com.afu.ledger.domain.model.Account
 import com.afu.ledger.domain.model.AccountType
@@ -9,21 +10,25 @@ import com.afu.ledger.domain.model.AccountWithBalance
 import com.afu.ledger.domain.model.Money
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class AssetsViewModel(
     private val accountRepository: AccountRepository,
+    private val assetPreferences: AssetPreferences,
 ) : ViewModel() {
 
-    val uiState: StateFlow<AssetsUiState> = accountRepository.observeWithBalance()
-        .map { buildState(it) }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = AssetsUiState(),
-        )
+    val uiState: StateFlow<AssetsUiState> = combine(
+        accountRepository.observeWithBalance(),
+        assetPreferences.amountHidden,
+    ) { items, amountHidden ->
+        buildState(items, amountHidden)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = AssetsUiState(),
+    )
 
     fun createAccount(
         name: String,
@@ -56,7 +61,25 @@ class AssetsViewModel(
         viewModelScope.launch { accountRepository.setArchived(id, archived) }
     }
 
-    private fun buildState(items: List<AccountWithBalance>): AssetsUiState {
+    /** 长按拖动后调用：只重排未归档账户，归档账户的顺序不受影响。 */
+    fun moveAccount(fromIndex: Int, toIndex: Int) {
+        val active = uiState.value.active
+        if (fromIndex !in active.indices || toIndex !in active.indices) return
+        if (fromIndex == toIndex) return
+        val reordered = active.map { it.account.id }.toMutableList()
+        val moved = reordered.removeAt(fromIndex)
+        reordered.add(toIndex, moved)
+        viewModelScope.launch { accountRepository.reorder(reordered) }
+    }
+
+    /** 一键切换资产页金额隐私遮罩；状态写入 DataStore，重启后仍然生效。 */
+    fun toggleAmountHidden() {
+        viewModelScope.launch {
+            assetPreferences.setAmountHidden(!uiState.value.amountHidden)
+        }
+    }
+
+    private fun buildState(items: List<AccountWithBalance>, amountHidden: Boolean): AssetsUiState {
         val active = items.filter { !it.account.archived }
         val archived = items.filter { it.account.archived }
 
@@ -69,6 +92,7 @@ class AssetsViewModel(
             totalAssets = Money(assets),
             totalLiabilities = Money(liabilities),
             netWorth = Money(assets - liabilities),
+            amountHidden = amountHidden,
             loaded = true,
         )
     }

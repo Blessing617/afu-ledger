@@ -27,34 +27,19 @@ class MoneyFormatterTest {
     }
 
     @Test
-    fun `不足一万仍显示完整金额`() {
-        assertEquals("9,999.00", MoneyFormatter.formatCompactYuan(999_900))
-        assertEquals("¥9,999.00", MoneyFormatter.formatCompactWithSymbol(Money(999_900)))
+    fun `大额也完整显示而不是缩写`() {
+        // 大额显示问题由布局（字号/折行）解决，不由格式解决：
+        // `¥4.70万` 这种缩写在资产页被用户明确否掉了
+        assertEquals("47,000.00", MoneyFormatter.formatYuan(4_700_000))
+        assertEquals("¥47,000.00", MoneyFormatter.formatWithSymbol(Money(4_700_000)))
+        assertEquals(
+            "¥99,999,999,999,956.00",
+            MoneyFormatter.formatWithSymbol(Money(9_999_999_999_995_600L)),
+        )
     }
 
     @Test
-    fun `一万起用万`() {
-        assertEquals("1.00万", MoneyFormatter.formatCompactYuan(1_000_000))
-        assertEquals("1.23万", MoneyFormatter.formatCompactYuan(1_234_500))
-        assertEquals("¥1.23万", MoneyFormatter.formatCompactWithSymbol(Money(1_234_500)))
-    }
-
-    @Test
-    fun `一亿起用亿`() {
-        assertEquals("1.00亿", MoneyFormatter.formatCompactYuan(MoneyFormatter.YI_CENTS))
-        assertEquals("1.23亿", MoneyFormatter.formatCompactYuan(12_345_000_000))
-    }
-
-    @Test
-    fun `一万亿起用万亿`() {
-        assertEquals("1.00万亿", MoneyFormatter.formatCompactYuan(MoneyFormatter.WAN_YI_CENTS))
-        // 真机截图里的 99,999,999,999,956.00 元 = 9,999,999,999,995,600 分
-        assertEquals("99.99万亿", MoneyFormatter.formatCompactYuan(9_999_999_999_995_600L))
-    }
-
-    @Test
-    fun `负数大额也缩写且负号在最前`() {
-        assertEquals("-1.23亿", MoneyFormatter.formatCompactYuan(-12_345_000_000L))
-        assertEquals("-¥1.23亿", MoneyFormatter.formatCompactWithSymbol(Money(-12_345_000_000L)))
+    fun `负数大额负号在最前`() {
+        assertEquals("-¥123,456,789.00", MoneyFormatter.formatWithSymbol(Money(-12_345_678_900L)))
     }
 }

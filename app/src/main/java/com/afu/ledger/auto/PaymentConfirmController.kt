@@ -65,8 +65,17 @@ class PaymentConfirmController(
         val hitAt = SystemClock.uptimeMillis()
         debugLog("hit amount=${draft.amount.cents} merchant=${draft.merchant} tradeNo=${draft.tradeNo}")
 
-        // 已经有待确认卡片时不再叠加
-        if (overlay.isShowing) return
+        if (draft.pageType == PaymentPageType.PAYMENT_RESULT) {
+            logger.log(draft.sourcePackage, "支付结果页，可入账", draft.amount.cents, draft.merchant)
+        }
+
+        // 已经有待确认卡片时不再叠加。
+        // 但如果是同一笔的另一个页面（结果页 → 账单详情页），要把更全的信息合并进来：
+        // 用户往往在卡片还开着的时候就点进了账单，此时丢掉单号与商户名很可惜。
+        if (overlay.isShowing) {
+            mergeSamePayment(draft)
+            return
+        }
 
         scope.launch {
             val fingerprint = draft.fingerprint()
@@ -102,6 +111,55 @@ class PaymentConfirmController(
             processedBills.markShown(fingerprint)
             shownFingerprint = fingerprint
             showConfirm(draft, hitAt)
+        }
+    }
+
+    /**
+     * 卡片已经显示时，同一笔的另一个页面到来了：合并字段，不新开卡片。
+     *
+     * 典型路径：支付宝「付款成功」先弹出（有金额、可能没商户），用户随手点进账单详情，
+     * 那里有商户全称、交易单号与支付时间。这时应该把信息补到**同一张卡片**上，
+     * 而不是弹第二张、更不能记成两笔。
+     *
+     * 判定口径与 [PaymentSessionDeduper] 一致：同包名 + 同金额 + 同方向。
+     */
+    private fun mergeSamePayment(draft: PaymentDraft) {
+        val current = currentDraft ?: return
+        val samePayment = current.sourcePackage == draft.sourcePackage &&
+            current.amount.cents == draft.amount.cents &&
+            current.direction == draft.direction
+        if (!samePayment) return
+
+        val merged = current.copy(
+            merchant = draft.merchant ?: current.merchant,
+            tradeNo = draft.tradeNo ?: current.tradeNo,
+            pageCategory = draft.pageCategory ?: current.pageCategory,
+            // 页面时间比识别时刻可信，有就换成页面时间
+            occurredAt = if (draft.occurredAtSource == TimeSource.PAGE) draft.occurredAt else current.occurredAt,
+            occurredAtSource = if (draft.occurredAtSource == TimeSource.PAGE) {
+                TimeSource.PAGE
+            } else {
+                current.occurredAtSource
+            },
+            pageType = if (draft.pageType == PaymentPageType.BILL_DETAIL) {
+                draft.pageType
+            } else {
+                current.pageType
+            },
+            amountLine = draft.amountLine.ifBlank { current.amountLine },
+        )
+        if (merged == current) return
+
+        debugLog("merge same payment: tradeNo=${merged.tradeNo} merchant=${merged.merchant}")
+        currentDraft = merged
+        val oldFingerprint = shownFingerprint ?: current.fingerprint()
+        scope.launch {
+            // 待确认库里的那条备注也要更新，否则首页仍显示结果页那版的弱信息
+            container.pendingBills.remove(oldFingerprint)
+            container.pendingBills.add(PendingBillStore.fromDraft(merged))
+            processedBills.markShown(merged.fingerprint())
+            shownFingerprint = merged.fingerprint()
+            showConfirm(merged, currentHitAt)
         }
     }
 
@@ -210,7 +268,11 @@ class PaymentConfirmController(
                     PaymentConfirmContent(
                         amountText = MoneyFormatter.formatWithSymbol(draft.amount),
                         merchant = draft.merchant,
-                        sourceLabel = draft.source,
+                        sourceLabel = if (draft.pageType == PaymentPageType.PAYMENT_RESULT) {
+                            "${draft.source} · 支付页"
+                        } else {
+                            draft.source
+                        },
                         directionLabel = if (direction == TransType.INCOME) "收入" else "支出",
                         billTimeText = DateFormatter.billTimeLabel(draft.occurredAt),
                         accounts = accounts,
@@ -308,6 +370,8 @@ class PaymentConfirmController(
                 is RecordResult.Success -> {
                     // 入账成功才写长有效期：这张账单以后都不该再提示
                     processedBills.mark(fingerprint)
+                    // 同一笔的会话键也标成已处理：防止后到的账单详情页再弹一次
+                    sessionDeduper.markHandled(effective)
                     // 已经正式入账，待确认库里这条可以撤掉
                     container.pendingBills.remove(fingerprint)
                     logger.log(draft.sourcePackage, "已入账", draft.amount.cents, draft.merchant)
@@ -342,6 +406,7 @@ class PaymentConfirmController(
         logger.log(draft.sourcePackage, "用户忽略", draft.amount.cents, draft.merchant)
         scope.launch {
             processedBills.mark(fingerprint)
+            sessionDeduper.markHandled(draft)
             container.pendingBills.remove(fingerprint)
         }
     }

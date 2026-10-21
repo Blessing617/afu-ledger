@@ -3,6 +3,7 @@ package com.afu.ledger.data.local.dao
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.afu.ledger.data.local.entity.AccountEntity
 import kotlinx.coroutines.flow.Flow
@@ -18,6 +19,24 @@ interface AccountDao {
 
     @Query("DELETE FROM accounts WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    /** 下一个排序值：追加到列表末尾。 */
+    @Query("SELECT IFNULL(MAX(sortOrder), -1) + 1 FROM accounts")
+    suspend fun nextSortOrder(): Int
+
+    @Query("UPDATE accounts SET sortOrder = :sortOrder WHERE id = :id")
+    suspend fun setSortOrder(id: Long, sortOrder: Int)
+
+    /**
+     * 按给定顺序重排。
+     *
+     * 放在一个事务里：逐条更新时界面会按 sortOrder 实时查询并重组列表，
+     * 中间态会出现「两行同序、顺序闪一下」。
+     */
+    @Transaction
+    suspend fun reorder(idsInOrder: List<Long>) {
+        idsInOrder.forEachIndexed { index, id -> setSortOrder(id, index) }
+    }
 
     @Query("SELECT * FROM accounts ORDER BY archived, sortOrder, id")
     fun observeAll(): Flow<List<AccountEntity>>
