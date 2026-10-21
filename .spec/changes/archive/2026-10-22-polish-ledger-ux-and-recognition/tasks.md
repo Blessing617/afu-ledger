@@ -59,6 +59,6 @@
 
 - [x] 8.1 跑全部单元测试与 `assembleRelease` — 验证：`./gradlew testDebugUnitTest assembleRelease` 成功
 - [x] 8.2 覆盖安装到真机，确认备份数据完好、账户/交易/预算/规则全部保留 — 验证：真机条数与基线一致
-- [x] 8.3 版本号递增（versionCode 9 / versionName 1.1.0）与 README、Release notes 更新 — 验证：`grep versionName` 与页面「关于」一致
-- [ ] 8.4 提交 main、打 tag、创建 GitHub Release 并上传 APK — 验证：`git push` 成功、远程 tag 与 release 附件可见
-- [ ] 8.5 清理本次临时产物（构建中间文件、截图、临时脚本），保留备份与交付 APK — 验证：工作区 `git status` 干净，备份文件仍在
+- [x] 8.3 版本号递增（versionCode 10 / versionName 1.1.1）与 README、Release notes 更新 — 验证：`grep versionName` 与页面「关于」一致
+- [x] 8.4 提交 main、打 tag、创建 GitHub Release 并上传 APK — 验证：远程 main `74afff3`、tag `v1.1.1`、release 附件 `afu-ledger-1.1.1.apk` 可见
+- [x] 8.5 清理本次临时产物（构建中间文件、截图、临时脚本），保留备份与交付 APK — 验证：`_tmp` 只留此前会话产物，备份文件仍在
