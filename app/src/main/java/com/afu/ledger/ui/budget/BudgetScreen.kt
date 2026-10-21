@@ -3,6 +3,7 @@ package com.afu.ledger.ui.budget
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,7 +62,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +72,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -86,17 +88,19 @@ import com.afu.ledger.domain.model.BudgetPeriodType
 import com.afu.ledger.domain.model.Category
 import com.afu.ledger.domain.model.Money
 import com.afu.ledger.domain.model.TransType
-import com.afu.ledger.ui.component.AMOUNT_KEY_BACKSPACE
-import com.afu.ledger.ui.component.AMOUNT_KEY_SAVE
 import com.afu.ledger.ui.component.AfuButton
 import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.component.AfuMotion
+import com.afu.ledger.ui.component.ModalScrim
 import com.afu.ledger.ui.component.AfuSlider
-import com.afu.ledger.ui.component.AmountKeypad
+import com.afu.ledger.ui.component.DatePickerSheet
 import com.afu.ledger.ui.component.EmptyState
+import com.afu.ledger.ui.component.NumberInputSheet
 import com.afu.ledger.ui.component.categoryIcon
+import com.afu.ledger.ui.component.pressScale
 import com.afu.ledger.ui.component.rememberMotionEnabled
-import com.afu.ledger.ui.record.appendAmountKey
+import com.afu.ledger.ui.component.rememberPressRepeater
+import com.afu.ledger.ui.component.rememberTapHaptic
 import com.afu.ledger.ui.theme.CapsuleShape
 import com.afu.ledger.ui.theme.LocalThemeStyle
 import com.afu.ledger.ui.theme.Spacing
@@ -369,11 +373,11 @@ private fun BudgetEditorSheet(
     }
     var selectedCategories by remember { mutableStateOf(initial?.categoryIds?.toSet() ?: emptySet()) }
     var threshold by remember { mutableStateOf((initial?.alertThresholdPercent ?: 80).toFloat()) }
+    var showStartDayPicker by remember { mutableStateOf(false) }
     var enabled by remember { mutableStateOf(initial?.enabled ?: true) }
 
     val amount = Money.parseYuan(amountText)
     // 键盘长按回调存活时间很长，读它拿最新金额而不是创建时的快照
-    val liveAmount by rememberUpdatedState(amountText)
     val nameValid = name.isNotBlank()
     val amountValid = amount != null && amount.cents > 0
     val startDayValid = periodType != BudgetPeriodType.MONTHLY || monthStartDay in 1..31
@@ -389,7 +393,7 @@ private fun BudgetEditorSheet(
     LaunchedEffect(Unit) {
         appear.animateTo(
             targetValue = 0f,
-            animationSpec = if (motionEnabled) AfuMotion.sheetBouncy() else snap(),
+            animationSpec = if (motionEnabled) AfuMotion.panelEnter() else snap(),
         )
     }
     LaunchedEffect(closing) {
@@ -438,8 +442,8 @@ private fun BudgetEditorSheet(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = 0.30f * (1f - appear.value.coerceIn(0f, 1f)) }
-                    .background(MaterialTheme.colorScheme.onSurface),
+                    .graphicsLayer { alpha = (1f - appear.value).coerceIn(0f, 1f) }
+                    .background(ModalScrim),
             )
 
             Column(
@@ -460,7 +464,9 @@ private fun BudgetEditorSheet(
                             topEnd = style.containerCorner,
                         ),
                     )
-                    .background(MaterialTheme.colorScheme.surface),
+                    .background(MaterialTheme.colorScheme.surface)
+                    // 系统键盘弹起时整体上移，主按钮与输入框都不被遮挡
+                    .imePadding(),
             ) {
                 // 拖拽条：只在这里绑手势，避免和正文滚动打架
                 Box(
@@ -517,7 +523,7 @@ private fun BudgetEditorSheet(
                         .padding(horizontal = Spacing.xl),
                     verticalArrangement = Arrangement.spacedBy(Spacing.md),
                 ) {
-                    // —— 金额：大字号，只用应用内键盘输入 ——
+                    // —— 金额：大字号，点一下用系统数字键盘输入（与定时记账一致）——
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             text = "额度",
@@ -532,13 +538,39 @@ private fun BudgetEditorSheet(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = amountText.ifBlank { "0.00" },
-                                fontSize = 40.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (amountValid) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
+                            BasicTextField(
+                                value = amountText,
+                                onValueChange = { raw ->
+                                    // 只保留数字与小数点；超出「9 位整数 + 2 位小数」的输入直接忽略，
+                                    // 与 Money.parseYuan 的上限保持一致
+                                    val filtered = raw.filter { it.isDigit() || it == '.' }
+                                    if (filtered.isEmpty() || Money.parseYuan(filtered) != null) {
+                                        amountText = filtered
+                                    }
+                                },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    fontSize = 40.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (amountValid) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                decorationBox = { inner ->
+                                    Box {
+                                        if (amountText.isEmpty()) {
+                                            Text(
+                                                text = "0.00",
+                                                fontSize = 40.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                            )
+                                        }
+                                        inner()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
                             )
                         }
                     }
@@ -568,9 +600,10 @@ private fun BudgetEditorSheet(
                             label = "每月起始日",
                             value = monthStartDay,
                             suffix = "日",
-                            hint = "发薪日不是 1 号就改这里",
-                            onDecrease = { monthStartDay = if (monthStartDay <= 1) 28 else monthStartDay - 1 },
-                            onIncrease = { monthStartDay = if (monthStartDay >= 28) 1 else monthStartDay + 1 },
+                            hint = "发薪日不是 1 号就改这里；小月自动按月末算",
+                            range = 1..31,
+                            onChange = { monthStartDay = it },
+                            onValueClick = { showStartDayPicker = true },
                         )
 
                         BudgetPeriodType.CUSTOM -> Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
@@ -642,7 +675,7 @@ private fun BudgetEditorSheet(
                             text = when {
                                 !nameValid -> "给预算起个名字"
                                 !amountValid -> "额度必须大于 0"
-                                !startDayValid -> "起始日需在 1–28 之间"
+                                !startDayValid -> "起始日需在 1–31 之间"
                                 else -> "自定义区间结束不能早于开始"
                             },
                             style = MaterialTheme.typography.bodySmall,
@@ -653,20 +686,27 @@ private fun BudgetEditorSheet(
                     Spacer(Modifier.height(Spacing.sm))
                 }
 
-                AmountKeypad(
-                    canSave = valid,
-                    saveLabel = if (initial == null) "创建" else "保存",
-                    onKey = { key ->
-                        // 同上：长按回调是旧闭包，必须读最新的金额
-                        when (key) {
-                            AMOUNT_KEY_BACKSPACE -> amountText = liveAmount.dropLast(1)
-                            AMOUNT_KEY_SAVE -> commitSave()
-                            else -> amountText = appendAmountKey(liveAmount, key)
-                        }
-                    },
+                // 底部唯一主按钮：与定时记账、记一笔保持同一位置与形状
+                AfuButton(
+                    text = if (initial == null) "创建" else "保存",
+                    onClick = { commitSave() },
+                    enabled = valid,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Spacing.xl, vertical = Spacing.md),
                 )
             }
         }
+    }
+
+    if (showStartDayPicker) {
+        NumberInputSheet(
+            title = "每月起始日",
+            initial = monthStartDay,
+            range = 1..31,
+            onConfirm = { monthStartDay = it },
+            onDismiss = { showStartDayPicker = false },
+        )
     }
 }
 
@@ -729,15 +769,16 @@ private fun SegmentPill(text: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** 圆形加减步进器：数值类参数不弹键盘。 */
+/** 圆形加减步进器：边界处禁用（不回绕），与定时记账的步进器同一套行为。 */
 @Composable
 private fun StepperLine(
     label: String,
     value: Int,
     suffix: String,
     hint: String,
-    onDecrease: () -> Unit,
-    onIncrease: () -> Unit,
+    range: IntRange,
+    onChange: (Int) -> Unit,
+    onValueClick: (() -> Unit)? = null,
 ) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -746,14 +787,25 @@ private fun StepperLine(
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.weight(1f),
             )
-            RoundStepButton(icon = Icons.Rounded.Remove, onClick = onDecrease)
+            RoundStepButton(
+                icon = Icons.Rounded.Remove,
+                enabled = value > range.first,
+                onClick = { onChange((value - 1).coerceIn(range)) },
+            )
             Text(
                 text = "$value$suffix",
                 style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.width(52.dp),
+                modifier = Modifier
+                    .width(52.dp)
+                    .clickable(enabled = onValueClick != null) { onValueClick?.invoke() },
             )
-            RoundStepButton(icon = Icons.Rounded.Add, onClick = onIncrease)
+            RoundStepButton(
+                icon = Icons.Rounded.Add,
+                enabled = value < range.last,
+                onClick = { onChange((value + 1).coerceIn(range)) },
+            )
         }
         Text(
             text = hint,
@@ -764,19 +816,46 @@ private fun StepperLine(
 }
 
 @Composable
-private fun RoundStepButton(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun RoundStepButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val haptic = rememberTapHaptic()
+    val source = rememberPressRepeater(enabled = enabled, onRepeat = onClick)
+
     Box(
         modifier = Modifier
             .size(34.dp)
+            .pressScale(source, pressedScale = 0.86f)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-            .clickable(onClick = onClick),
+            .background(
+                if (enabled) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                } else {
+                    // 到边界时保留淡底，避免这一侧像「少了个按钮」
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                },
+            )
+            .clickable(
+                interactionSource = source,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                onClick = {
+                    haptic()
+                    onClick()
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = if (enabled) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+            },
             modifier = Modifier.size(18.dp),
         )
     }
@@ -848,21 +927,12 @@ private fun DateField(
     modifier: Modifier = Modifier,
     onPick: (LocalDate) -> Unit,
 ) {
-    val context = LocalContext.current
+    var showPicker by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-            .clickable {
-                val base = value ?: LocalDate.now()
-                android.app.DatePickerDialog(
-                    context,
-                    { _, year, month, day -> onPick(LocalDate.of(year, month + 1, day)) },
-                    base.year,
-                    base.monthValue - 1,
-                    base.dayOfMonth,
-                ).show()
-            }
+            .clickable { showPicker = true }
             .padding(horizontal = Spacing.md, vertical = Spacing.sm),
     ) {
         Column {
@@ -881,6 +951,20 @@ private fun DateField(
                 )
             }
         }
+    }
+
+    if (showPicker) {
+        DatePickerSheet(
+            initialSelectedMillis = (value ?: LocalDate.now()).toEpochDay() * 86_400_000L,
+            onPick = { millis ->
+                onPick(
+                    java.time.Instant.ofEpochMilli(millis)
+                        .atZone(java.time.ZoneOffset.UTC)
+                        .toLocalDate(),
+                )
+            },
+            onDismiss = { showPicker = false },
+        )
     }
 }
 
