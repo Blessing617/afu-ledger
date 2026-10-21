@@ -3,20 +3,20 @@ package com.afu.ledger.ui.component
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * 按下时轻微缩小，松手弹回。
@@ -45,6 +45,15 @@ fun Modifier.pressScale(
 }
 
 /**
+ * 所有弹层的遮罩色。
+ *
+ * 固定用「黑 32%」而不是 `colorScheme.onSurface`：深色模式下 onSurface 是浅色，
+ * 遮罩会变成一层白雾；而系统 AlertDialog 用的是黑色 dim，两者并排就会一个发白一个发黑。
+ * 统一成与系统对话框一致的观感后，面板、选择器、确认框的背景才算同一种「被压暗」。
+ */
+val ModalScrim: Color = Color.Black.copy(alpha = 0.32f)
+
+/**
  * 轻触反馈（震动）。
  *
  * `TextHandleMove` 是系统里最轻的一档，不申请任何权限，也不会在静音/勿扰下强行响。
@@ -68,45 +77,37 @@ fun rememberLongPressHaptic(): () -> Unit {
 }
 
 /**
- * 按住后连续触发：按下立即执行一次，随后以逐渐加快的节奏重复，抬手立即停。
+ * 按住连续触发：按下超过 [firstDelayMs] 后开始重复，节奏逐渐加快，抬手即停。
  *
- * 用于「退格连删」与「步进器连续加减」。不用 `detectTapGestures` 的原因见 AmountKeypad：
- * 系统长按判定后 onPress 会被取消；而长按期间系统又会持续派发 MOVE 事件，
- * 「等不到事件才重复」也永远触发不了。
+ * 返回的 [MutableInteractionSource] 同时给 `clickable` 与 [pressScale] 用：
+ * 短按由 `clickable` 的 onClick 触发一次；长按由这里的循环触发。
+ *
+ * **为什么不用 pointerInput 自己算**：每次状态变化都会重组，pointerInput 的 block 跟着重建，
+ * 长按循环会被打断（真机表现是「按住只加了五六次就停」）。这里改用
+ * `collectIsPressedAsState + LaunchedEffect`，循环挂在组合的 effect 上，不随手势节点重建。
+ * 回调通过 `rememberUpdatedState` 取最新值，避免一直读按下瞬间的快照。
  */
-fun Modifier.repeatOnPress(
-    enabled: Boolean,
-    onPress: () -> Unit,
-    onRelease: () -> Unit = {},
-    firstDelayMs: Long = 380L,
-    accelerateMs: Long = 12L,
-    minIntervalMs: Long = 45L,
-): Modifier {
-    if (!enabled) return this
-    return pointerInput(enabled) {
-        coroutineScope {
-            awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false)
-                down.consume()
-                onPress()
-                val repeat = launch {
-                    var interval = firstDelayMs
-                    while (true) {
-                        delay(interval)
-                        onPress()
-                        interval = (interval - accelerateMs).coerceAtLeast(minIntervalMs)
-                    }
-                }
-                try {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        if (event.changes.all { !it.pressed }) break
-                    }
-                } finally {
-                    repeat.cancel()
-                    onRelease()
-                }
-            }
+@Composable
+fun rememberPressRepeater(
+    enabled: Boolean = true,
+    firstDelayMs: Long = 320L,
+    accelerateMs: Long = 10L,
+    minIntervalMs: Long = 40L,
+    onRepeat: () -> Unit,
+): MutableInteractionSource {
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val latest by rememberUpdatedState(onRepeat)
+
+    LaunchedEffect(pressed, enabled) {
+        if (!pressed || !enabled) return@LaunchedEffect
+        delay(firstDelayMs)
+        var interval = 90L
+        while (true) {
+            latest()
+            delay(interval)
+            interval = (interval - accelerateMs).coerceAtLeast(minIntervalMs)
         }
     }
+    return source
 }

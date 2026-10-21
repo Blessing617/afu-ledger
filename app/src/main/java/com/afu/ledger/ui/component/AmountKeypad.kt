@@ -4,10 +4,8 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,22 +18,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.afu.ledger.ui.theme.LocalThemeStyle
 import com.afu.ledger.ui.theme.Spacing
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /** 退格键的 key 值。 */
 const val AMOUNT_KEY_BACKSPACE = "⌫"
@@ -135,50 +132,34 @@ private fun KeypadKey(
     }
     val style = LocalThemeStyle.current
     val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
     val haptic = rememberTapHaptic()
-    val scope = rememberCoroutineScope()
     val longPressHaptic = rememberLongPressHaptic()
+    var lastClearAt by remember { mutableLongStateOf(0L) }
 
-    val tapModifier = if (onLongPress != null && enabled) {
-        // 短按删一个；按住超过阈值清空。阈值内抬手都算点按。
-        Modifier.pointerInput(enabled) {
-            coroutineScope {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    down.consume()
-                    haptic()
-                    val interaction = PressInteraction.Press(Offset.Zero)
-                    scope.launch { source.emit(interaction) }
-
-                    var longPressFired = false
-                    val longPressJob = launch {
-                        delay(LONG_PRESS_CLEAR_MS)
-                        longPressFired = true
-                        longPressHaptic()
-                        onLongPress()
-                    }
-
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        if (event.changes.all { !it.pressed }) break
-                    }
-                    longPressJob.cancel()
-                    scope.launch { source.emit(PressInteraction.Release(interaction)) }
-                    if (!longPressFired) onClick()
-                }
-            }
+    // 短按删一个；按住超过阈值清空整笔。
+    // 计时挂在组合 effect 上（不依赖手势节点），否则每次金额变化重组都会把长按打断。
+    LaunchedEffect(pressed, onLongPress) {
+        if (pressed && onLongPress != null) {
+            delay(LONG_PRESS_CLEAR_MS)
+            lastClearAt = System.currentTimeMillis()
+            longPressHaptic()
+            onLongPress()
         }
-    } else {
-        Modifier.clickable(
-            interactionSource = source,
-            indication = LocalIndication.current,
-            enabled = enabled,
-            onClick = {
+    }
+
+    val tapModifier = Modifier.clickable(
+        interactionSource = source,
+        indication = LocalIndication.current,
+        enabled = enabled,
+        onClick = {
+            // 长按刚清空过：抬手时的那次点击不再多删一位
+            if (System.currentTimeMillis() - lastClearAt > 500L) {
                 haptic()
                 onClick()
-            },
-        )
-    }
+            }
+        },
+    )
 
     Box(
         modifier = modifier

@@ -40,15 +40,12 @@ import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -76,9 +73,12 @@ import com.afu.ledger.domain.model.Category
 import com.afu.ledger.domain.model.Money
 import com.afu.ledger.domain.model.TransType
 import com.afu.ledger.ui.component.AMOUNT_KEY_BACKSPACE
+import com.afu.ledger.ui.component.ModalScrim
 import com.afu.ledger.ui.component.AMOUNT_KEY_SAVE
 import com.afu.ledger.ui.component.AfuMotion
 import com.afu.ledger.ui.component.AmountKeypad
+import com.afu.ledger.ui.component.DatePickerSheet
+import com.afu.ledger.ui.component.MetaChip
 import com.afu.ledger.ui.component.accountIcon
 import com.afu.ledger.ui.component.categoryIcon
 import com.afu.ledger.ui.component.rememberMotionEnabled
@@ -175,14 +175,14 @@ fun RecordScreen(
         //
         // 遮罩**不可点击关闭**：记账时手指常在面板边缘，点一下空白就丢输入是最高频的误触。
         // 关闭只保留「下滑、右上角 ❌、返回键」三种明确动作。
-        val scrimColor = MaterialTheme.colorScheme.onSurface
+        val scrimColor = ModalScrim
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 // graphicsLayer 必须在 background 之前：它在修饰符链里更外层，
                 // alpha 才能作用于「遮罩这一层」的全部绘制。反过来写的话
                 // background 在外层、不受 alpha 影响，遮罩会变成全不透明的一整块。
-                .graphicsLayer { alpha = 0.30f * (1f - appear.value) }
+                .graphicsLayer { alpha = (1f - appear.value).coerceIn(0f, 1f) }
                 .background(scrimColor),
         )
 
@@ -344,23 +344,11 @@ fun RecordScreen(
     }
 
     if (showDatePicker) {
-        val pickerState = rememberDatePickerState(initialSelectedDateMillis = uiState.occurredAt)
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pickerState.selectedDateMillis?.let(onDateChange)
-                        showDatePicker = false
-                    },
-                ) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) { Text("取消") }
-            },
-        ) {
-            DatePicker(state = pickerState)
-        }
+        DatePickerSheet(
+            initialSelectedMillis = uiState.occurredAt,
+            onPick = onDateChange,
+            onDismiss = { showDatePicker = false },
+        )
     }
 
     if (showNoteEditor) {
@@ -421,6 +409,7 @@ private fun NoteEditorSheet(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(ModalScrim)
                 .imePadding()
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -621,46 +610,6 @@ private fun FieldLabel(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(start = Spacing.xl, top = Spacing.xs, bottom = 2.dp),
     )
-}
-
-@Composable
-private fun MetaChip(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    muted: Boolean = false,
-) {
-    Row(
-        modifier = modifier
-            .clip(CapsuleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = Spacing.md, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (muted) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.primary
-            },
-            modifier = Modifier.size(16.dp),
-        )
-        Spacer(Modifier.width(Spacing.xs))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (muted) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-            maxLines = 1,
-        )
-    }
 }
 
 /**
