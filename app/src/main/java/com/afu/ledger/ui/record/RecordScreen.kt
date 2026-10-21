@@ -148,7 +148,7 @@ fun RecordScreen(
         // 过冲方向由下面的 graphicsLayer 处理 —— 位移只走到就位，绝不继续上移。
         appear.animateTo(
             targetValue = 0f,
-            animationSpec = if (motionEnabled) AfuMotion.sheetBouncy() else snap(),
+            animationSpec = if (motionEnabled) AfuMotion.panelEnter() else snap(),
         )
     }
     LaunchedEffect(closing) {
@@ -331,15 +331,14 @@ fun RecordScreen(
                 canSave = uiState.canSave,
                 saveLabel = if (uiState.isEditing) "保存" else "记账",
                 onKey = { key ->
-                    // 长按连删时，手势回调是**首次组合**时创建的那一个；直接读 uiState 会一直拿到
-                    // 按下前的金额（表现为「按住只删一个字符」）。liveState 是最新的 State，
-                    // 旧闭包读它也总能拿到当前输入。
+                    // 手势回调是首次组合时创建的，金额必须读 liveState（最新值）
                     when (key) {
                         AMOUNT_KEY_BACKSPACE -> onAmountChange(liveState.amountInput.dropLast(1))
                         AMOUNT_KEY_SAVE -> if (liveState.canSave) onSave() else Unit
                         else -> onAmountChange(appendAmountKey(liveState.amountInput, key))
                     }
                 },
+                onClear = { onAmountChange("") },
             )
         }
     }

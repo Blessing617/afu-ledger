@@ -1,10 +1,13 @@
 package com.afu.ledger.ui.component
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,9 +20,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -37,10 +43,8 @@ const val AMOUNT_KEY_BACKSPACE = "⌫"
 /** 主操作键的 key 值（记账面板是「记账 / 保存」，预算面板是「保存」）。 */
 const val AMOUNT_KEY_SAVE = "保存"
 
-/** 长按连删：第一次重复前的等待，与逐次加速的步长 / 最短间隔（毫秒）。 */
-private const val REPEAT_FIRST_DELAY_MS = 380L
-private const val REPEAT_ACCELERATE_MS = 12L
-private const val REPEAT_MIN_INTERVAL_MS = 45L
+/** 按住退格多久算「长按清空」。 */
+private const val LONG_PRESS_CLEAR_MS = 420L
 
 private val KeypadRows = listOf(
     listOf("7", "8", "9"),
@@ -55,13 +59,15 @@ private val KeypadRows = listOf(
  * 为什么没有 `00`、日期、备注键：`00` 只省一次点击却占一格；日期/备注在金额下方已有入口，
  * 键盘上再来一份就是重复元素。退格放右下角（与系统数字键盘一致），主按钮单独一行满宽胶囊。
  *
- * 退格支持长按连删：按住后先等一个长按阈值，再以逐渐加快的节奏重复，松手立即停。
+ * 退格的两种删法：**点一下删一个字符，按住不放清空整笔金额**。
+ * 「按住连续删」在真机上像匀速倒带，删到一半还得盯着看删到哪了；一步清空更符合直觉。
  */
 @Composable
 fun AmountKeypad(
     canSave: Boolean,
     saveLabel: String,
     onKey: (String) -> Unit,
+    onClear: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -77,12 +83,13 @@ fun AmountKeypad(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 row.forEach { key ->
+                    val isBackspace = key == AMOUNT_KEY_BACKSPACE
                     KeypadKey(
                         label = key,
-                        kind = if (key == AMOUNT_KEY_BACKSPACE) KeyKind.FUNCTION else KeyKind.NORMAL,
+                        kind = if (isBackspace) KeyKind.FUNCTION else KeyKind.NORMAL,
                         enabled = true,
                         onClick = { onKey(key) },
-                        repeatOnLongPress = key == AMOUNT_KEY_BACKSPACE,
+                        onLongPress = if (isBackspace) onClear else null,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -109,7 +116,7 @@ private fun KeypadKey(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     height: Dp = 50.dp,
-    repeatOnLongPress: Boolean = false,
+    onLongPress: (() -> Unit)? = null,
 ) {
     val background = when (kind) {
         KeyKind.PRIMARY -> if (enabled) {
@@ -127,45 +134,55 @@ private fun KeypadKey(
         KeyKind.NORMAL -> MaterialTheme.colorScheme.onSurface
     }
     val style = LocalThemeStyle.current
+    val source = remember { MutableInteractionSource() }
+    val haptic = rememberTapHaptic()
+    val scope = rememberCoroutineScope()
+    val longPressHaptic = rememberLongPressHaptic()
 
-    val tapModifier = if (repeatOnLongPress && enabled) {
-        // 自己处理「按下后持续删除」：
-        // - 不能用 detectTapGestures：系统长按判定后 onPress 会被取消，真机表现是只删一个字符
-        // - 也不能等「没有 pointer 事件」才删：长按期间系统仍会持续派发 MOVE 事件（adb 与真机都会），
-        //   永远等不到「无事件」的间隙
-        // 正确做法是独立计时器重复回调，同时等手指抬起再停。
+    val tapModifier = if (onLongPress != null && enabled) {
+        // 短按删一个；按住超过阈值清空。阈值内抬手都算点按。
         Modifier.pointerInput(enabled) {
             coroutineScope {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
-                    onClick()
-                    val repeat = launch {
-                        var interval = REPEAT_FIRST_DELAY_MS
-                        while (true) {
-                            delay(interval)
-                            onClick()
-                            interval = (interval - REPEAT_ACCELERATE_MS)
-                                .coerceAtLeast(REPEAT_MIN_INTERVAL_MS)
-                        }
+                    haptic()
+                    val interaction = PressInteraction.Press(Offset.Zero)
+                    scope.launch { source.emit(interaction) }
+
+                    var longPressFired = false
+                    val longPressJob = launch {
+                        delay(LONG_PRESS_CLEAR_MS)
+                        longPressFired = true
+                        longPressHaptic()
+                        onLongPress()
                     }
-                    try {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            if (event.changes.all { !it.pressed }) break
-                        }
-                    } finally {
-                        repeat.cancel()
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.changes.all { !it.pressed }) break
                     }
+                    longPressJob.cancel()
+                    scope.launch { source.emit(PressInteraction.Release(interaction)) }
+                    if (!longPressFired) onClick()
                 }
             }
         }
     } else {
-        Modifier.clickable(enabled = enabled, onClick = onClick)
+        Modifier.clickable(
+            interactionSource = source,
+            indication = LocalIndication.current,
+            enabled = enabled,
+            onClick = {
+                haptic()
+                onClick()
+            },
+        )
     }
 
     Box(
         modifier = modifier
+            .pressScale(source, pressedScale = if (kind == KeyKind.PRIMARY) 0.97f else 0.93f)
             .height(height)
             .clip(RoundedCornerShape(if (style.outlineWidth > 0.dp) 16.dp else 14.dp))
             .background(background)

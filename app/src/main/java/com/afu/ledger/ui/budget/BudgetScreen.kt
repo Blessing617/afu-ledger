@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,17 +63,18 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -86,17 +90,16 @@ import com.afu.ledger.domain.model.BudgetPeriodType
 import com.afu.ledger.domain.model.Category
 import com.afu.ledger.domain.model.Money
 import com.afu.ledger.domain.model.TransType
-import com.afu.ledger.ui.component.AMOUNT_KEY_BACKSPACE
-import com.afu.ledger.ui.component.AMOUNT_KEY_SAVE
 import com.afu.ledger.ui.component.AfuButton
 import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.component.AfuMotion
 import com.afu.ledger.ui.component.AfuSlider
-import com.afu.ledger.ui.component.AmountKeypad
 import com.afu.ledger.ui.component.EmptyState
 import com.afu.ledger.ui.component.categoryIcon
+import com.afu.ledger.ui.component.pressScale
 import com.afu.ledger.ui.component.rememberMotionEnabled
-import com.afu.ledger.ui.record.appendAmountKey
+import com.afu.ledger.ui.component.rememberTapHaptic
+import com.afu.ledger.ui.component.repeatOnPress
 import com.afu.ledger.ui.theme.CapsuleShape
 import com.afu.ledger.ui.theme.LocalThemeStyle
 import com.afu.ledger.ui.theme.Spacing
@@ -373,7 +376,6 @@ private fun BudgetEditorSheet(
 
     val amount = Money.parseYuan(amountText)
     // 键盘长按回调存活时间很长，读它拿最新金额而不是创建时的快照
-    val liveAmount by rememberUpdatedState(amountText)
     val nameValid = name.isNotBlank()
     val amountValid = amount != null && amount.cents > 0
     val startDayValid = periodType != BudgetPeriodType.MONTHLY || monthStartDay in 1..31
@@ -389,7 +391,7 @@ private fun BudgetEditorSheet(
     LaunchedEffect(Unit) {
         appear.animateTo(
             targetValue = 0f,
-            animationSpec = if (motionEnabled) AfuMotion.sheetBouncy() else snap(),
+            animationSpec = if (motionEnabled) AfuMotion.panelEnter() else snap(),
         )
     }
     LaunchedEffect(closing) {
@@ -460,7 +462,9 @@ private fun BudgetEditorSheet(
                             topEnd = style.containerCorner,
                         ),
                     )
-                    .background(MaterialTheme.colorScheme.surface),
+                    .background(MaterialTheme.colorScheme.surface)
+                    // 系统键盘弹起时整体上移，主按钮与输入框都不被遮挡
+                    .imePadding(),
             ) {
                 // 拖拽条：只在这里绑手势，避免和正文滚动打架
                 Box(
@@ -517,7 +521,7 @@ private fun BudgetEditorSheet(
                         .padding(horizontal = Spacing.xl),
                     verticalArrangement = Arrangement.spacedBy(Spacing.md),
                 ) {
-                    // —— 金额：大字号，只用应用内键盘输入 ——
+                    // —— 金额：大字号，点一下用系统数字键盘输入（与定时记账一致）——
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             text = "额度",
@@ -532,13 +536,39 @@ private fun BudgetEditorSheet(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = amountText.ifBlank { "0.00" },
-                                fontSize = 40.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (amountValid) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
+                            BasicTextField(
+                                value = amountText,
+                                onValueChange = { raw ->
+                                    // 只保留数字与小数点；超出「9 位整数 + 2 位小数」的输入直接忽略，
+                                    // 与 Money.parseYuan 的上限保持一致
+                                    val filtered = raw.filter { it.isDigit() || it == '.' }
+                                    if (filtered.isEmpty() || Money.parseYuan(filtered) != null) {
+                                        amountText = filtered
+                                    }
+                                },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    fontSize = 40.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (amountValid) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                decorationBox = { inner ->
+                                    Box {
+                                        if (amountText.isEmpty()) {
+                                            Text(
+                                                text = "0.00",
+                                                fontSize = 40.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                            )
+                                        }
+                                        inner()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
                             )
                         }
                     }
@@ -653,17 +683,14 @@ private fun BudgetEditorSheet(
                     Spacer(Modifier.height(Spacing.sm))
                 }
 
-                AmountKeypad(
-                    canSave = valid,
-                    saveLabel = if (initial == null) "创建" else "保存",
-                    onKey = { key ->
-                        // 同上：长按回调是旧闭包，必须读最新的金额
-                        when (key) {
-                            AMOUNT_KEY_BACKSPACE -> amountText = liveAmount.dropLast(1)
-                            AMOUNT_KEY_SAVE -> commitSave()
-                            else -> amountText = appendAmountKey(liveAmount, key)
-                        }
-                    },
+                // 底部唯一主按钮：与定时记账、记一笔保持同一位置与形状
+                AfuButton(
+                    text = if (initial == null) "创建" else "保存",
+                    onClick = { commitSave() },
+                    enabled = valid,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Spacing.xl, vertical = Spacing.md),
                 )
             }
         }
@@ -765,12 +792,39 @@ private fun StepperLine(
 
 @Composable
 private fun RoundStepButton(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    val source = remember { MutableInteractionSource() }
+    val haptic = rememberTapHaptic()
+    val scope = rememberCoroutineScope()
+    var press by remember { mutableStateOf<PressInteraction.Press?>(null) }
+
     Box(
         modifier = Modifier
             .size(34.dp)
+            .pressScale(source, pressedScale = 0.86f)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-            .clickable(onClick = onClick),
+            // 按住连续加减：起始日这类参数不需要一下一下点
+            .repeatOnPress(
+                enabled = true,
+                onPress = {
+                    if (press == null) {
+                        haptic()
+                        val interaction = PressInteraction.Press(Offset.Zero)
+                        press = interaction
+                        scope.launch { source.emit(interaction) }
+                    }
+                    onClick()
+                },
+                onRelease = {
+                    press?.let { interaction ->
+                        scope.launch { source.emit(PressInteraction.Release(interaction)) }
+                    }
+                    press = null
+                },
+                firstDelayMs = 320L,
+                accelerateMs = 10L,
+                minIntervalMs = 40L,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
