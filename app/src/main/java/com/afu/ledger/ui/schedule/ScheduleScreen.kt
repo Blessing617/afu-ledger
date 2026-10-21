@@ -2,6 +2,7 @@ package com.afu.ledger.ui.schedule
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -9,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -67,6 +69,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -89,6 +92,7 @@ import com.afu.ledger.ui.component.IconChoiceRow
 import com.afu.ledger.ui.component.rememberMotionEnabled
 import com.afu.ledger.ui.component.accountIcon
 import com.afu.ledger.ui.component.categoryIcon
+import com.afu.ledger.ui.theme.CapsuleShape
 import com.afu.ledger.ui.theme.Spacing
 import com.afu.ledger.util.MoneyFormatter
 import java.time.DayOfWeek
@@ -266,79 +270,94 @@ private fun RuleCard(
     var confirmDelete by remember { mutableStateOf(false) }
 
     AfuCard(modifier = Modifier.fillMaxWidth()) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onClick)
                 .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.EventRepeat,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
-            Spacer(Modifier.width(Spacing.md))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = rule.displayName(categoryName),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = buildString {
-                        append(scheduleSummary(rule))
-                        append(" · ")
-                        append(if (rule.behavior == ScheduleBehavior.AUTO_POST) "自动入账" else "提醒确认")
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = buildString {
-                        append(nextRunLabel(rule))
-                        accountName?.let { append(" · $it") }
-                        rule.pausedReason?.let { append(" · $it") }
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (rule.pausedReason != null) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = (if (rule.type == TransType.EXPENSE) "-" else "+") +
-                        MoneyFormatter.formatWithSymbol(rule.amount),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (rule.type == TransType.EXPENSE) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            Icons.Rounded.Delete,
-                            contentDescription = "删除规则",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.EventRepeat,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(Modifier.width(Spacing.md))
+                Column(modifier = Modifier.weight(1f)) {
+                    // 主行：金额是视觉主体，名称退成同一行的次要文本
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            text = (if (rule.type == TransType.EXPENSE) "-" else "+") +
+                                MoneyFormatter.formatWithSymbol(rule.amount),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (rule.type == TransType.EXPENSE) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = rule.displayName(categoryName),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Switch(checked = rule.enabled, onCheckedChange = onToggle)
+                    Spacer(Modifier.height(2.dp))
+                    // 次行只放周期与下次执行；周期描述里已经带了时刻，下次只显示日期，避免同一行重复两遍时间
+                    Text(
+                        text = "${scheduleSummary(rule)} · ${nextRunLabel(rule).substringBeforeLast(' ')}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
+                Switch(checked = rule.enabled, onCheckedChange = onToggle)
+                IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Rounded.Delete,
+                        contentDescription = "删除规则",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BehaviorTag(
+                    text = if (rule.behavior == ScheduleBehavior.AUTO_POST) "自动入账" else "提醒确认",
+                )
+                accountName?.let {
+                    Spacer(Modifier.width(Spacing.sm))
+                    Text(
+                        text = "· $it",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            // 暂停原因单独一行：挤进主行会把金额和周期都读不清
+            rule.pausedReason?.let { reason ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "⚠ $reason",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
     }
@@ -354,6 +373,43 @@ private fun RuleCard(
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("取消") }
             },
+        )
+    }
+}
+
+/** 编辑器里的分区卡片：每组带一个小标题，避免十几个字段平铺成一长列。 */
+@Composable
+private fun SectionCard(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    AfuCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(vertical = Spacing.sm),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.xs),
+        )
+        content()
+    }
+}
+
+/** 到期行为的小标签：只占一行、不与主信息抢位置。 */
+@Composable
+private fun BehaviorTag(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(CapsuleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
         )
     }
 }
@@ -420,17 +476,33 @@ private fun ScheduleEditorPage(
     var timeOfDay by remember { mutableStateOf(initial?.timeOfDay ?: LocalTime.of(9, 0)) }
     var startDate by remember { mutableStateOf(initial?.startDate ?: LocalDate.now()) }
     var endDate by remember { mutableStateOf(initial?.endDate) }
-    var maxOccurrences by remember { mutableStateOf(initial?.maxOccurrences ?: 0) }
+    var maxOccurrences by remember { mutableStateOf(initial?.maxOccurrences ?: 1) }
+    // 结束条件是三选一，不是一个「日期」加一个「期数」两个并存的控件。
+    // 两个控件同时摆着时，用户根本不知道哪个在生效。
+    var endMode by remember {
+        mutableStateOf(
+            when {
+                initial?.endDate != null -> EndMode.UNTIL_DATE
+                initial?.maxOccurrences != null -> EndMode.AFTER_COUNT
+                else -> EndMode.NEVER
+            },
+        )
+    }
     var behavior by remember { mutableStateOf(initial?.behavior ?: ScheduleBehavior.AUTO_POST) }
     var note by remember { mutableStateOf(initial?.note ?: "") }
 
     val typeCategories = categories.filter { it.type == type }
     val amount = Money.parseYuan(amountText)
+    val endValid = when (endMode) {
+        EndMode.NEVER -> true
+        EndMode.UNTIL_DATE -> endDate != null && !endDate!!.isBefore(startDate)
+        EndMode.AFTER_COUNT -> maxOccurrences >= 1
+    }
     val canSave = amount != null && amount.isPositive() &&
         categoryId != null && typeCategories.any { it.id == categoryId } &&
         accountId != null &&
         (frequency != ScheduleFrequency.WEEKLY || weekdays.isNotEmpty()) &&
-        (endDate == null || !endDate!!.isBefore(startDate))
+        endValid
 
     val commitSave = {
         val savedAmount = amount
@@ -453,8 +525,8 @@ private fun ScheduleEditorPage(
                 monthOfYear = monthOfYear,
                 timeOfDay = timeOfDay,
                 startDate = startDate,
-                endDate = endDate,
-                maxOccurrences = maxOccurrences.takeIf { it > 0 },
+                endDate = if (endMode == EndMode.UNTIL_DATE) endDate else null,
+                maxOccurrences = if (endMode == EndMode.AFTER_COUNT) maxOccurrences else null,
                 behavior = behavior,
                 enabled = initial?.enabled ?: true,
                 lastGeneratedDate = initial?.lastGeneratedDate,
@@ -495,6 +567,9 @@ private fun ScheduleEditorPage(
                 runCatching {
                     val window = (view.parent as? DialogWindowProvider)?.window
                     window?.setDimAmount(0f)
+                    // 打开编辑器时不要自动弹系统键盘：金额输入框会抢到窗口焦点，
+                    // 键盘一上来就挡住半屏，把「分区浏览」变成了「先关键盘」。
+                    window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
                     if (window != null) {
                         WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = true
                     }
@@ -505,7 +580,7 @@ private fun ScheduleEditorPage(
                     .fillMaxSize()
                     .statusBarsPadding(),
             ) {
-                // 顶栏：关闭 + 标题 + 保存
+                // 顶栏只留关闭：保存只放在底部主按钮一处，避免两个等价入口
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -520,236 +595,270 @@ private fun ScheduleEditorPage(
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = commitSave, enabled = canSave) {
-                        Text(
-                            text = "保存",
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (canSave) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            },
-                        )
-                    }
                 }
 
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .verticalScroll(rememberScrollState()),
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = Spacing.md),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
-                    AmountField(
-                        amountText = amountText,
-                        onAmountChange = { raw ->
-                            amountText = raw.filter { it.isDigit() || it == '.' }
-                        },
-                        type = type,
-                        onTypeChange = { type = it; categoryId = null },
-                    )
-
-                    FieldLabel("分类")
-                    CategoryPicker(
-                        categories = typeCategories,
-                        selectedId = categoryId,
-                        onSelect = { categoryId = it },
-                    )
-
-                    FieldLabel("账户")
-                    if (accounts.isEmpty()) {
-                        Text(
-                            text = "先到资产页创建一个账户，才能设定时记账",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = Spacing.xl),
+                    SectionCard("记什么") {
+                        AmountField(
+                            amountText = amountText,
+                            onAmountChange = { raw ->
+                                amountText = raw.filter { it.isDigit() || it == '.' }
+                            },
+                            type = type,
+                            onTypeChange = { type = it; categoryId = null },
                         )
-                    } else {
-                        IconChoiceRow(
-                            items = accounts,
-                            selectedId = accountId,
-                            idOf = { it.id },
-                            labelOf = { it.name },
-                            iconOf = { accountIcon(it.iconKey) },
-                            colorOf = { Color(it.colorArgb) },
-                            onSelect = { accountId = it.id },
+
+                        FieldLabel("分类")
+                        CategoryPicker(
+                            categories = typeCategories,
+                            selectedId = categoryId,
+                            onSelect = { categoryId = it },
+                        )
+
+                        FieldLabel("账户")
+                        if (accounts.isEmpty()) {
+                            Text(
+                                text = "先到资产页创建一个账户，才能设定时记账",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = Spacing.xl),
+                            )
+                        } else {
+                            IconChoiceRow(
+                                items = accounts,
+                                selectedId = accountId,
+                                idOf = { it.id },
+                                labelOf = { it.name },
+                                iconOf = { accountIcon(it.iconKey) },
+                                colorOf = { Color(it.colorArgb) },
+                                onSelect = { accountId = it.id },
+                                modifier = Modifier.padding(horizontal = Spacing.lg),
+                            )
+                        }
+
+                        FieldLabel("备注（也是规则名称）")
+                        NoteField(value = note, onValueChange = { note = it })
+                    }
+
+                    SectionCard("多久一次") {
+                        FieldLabel("重复")
+                        PillRow(
+                            options = listOf(
+                                ScheduleFrequency.DAILY to "每天",
+                                ScheduleFrequency.WEEKLY to "每周",
+                                ScheduleFrequency.MONTHLY to "每月",
+                                ScheduleFrequency.YEARLY to "每年",
+                            ),
+                            selected = frequency,
+                            onSelect = { frequency = it },
                             modifier = Modifier.padding(horizontal = Spacing.lg),
                         )
-                    }
 
-                    FieldLabel("重复")
-                    PillRow(
-                        options = listOf(
-                            ScheduleFrequency.DAILY to "每天",
-                            ScheduleFrequency.WEEKLY to "每周",
-                            ScheduleFrequency.MONTHLY to "每月",
-                            ScheduleFrequency.YEARLY to "每年",
-                        ),
-                        selected = frequency,
-                        onSelect = { frequency = it },
-                        modifier = Modifier.padding(horizontal = Spacing.lg),
-                    )
+                        StepperRow(
+                            label = "间隔",
+                            value = interval,
+                            suffix = when (frequency) {
+                                ScheduleFrequency.DAILY -> "天"
+                                ScheduleFrequency.WEEKLY -> "周"
+                                ScheduleFrequency.MONTHLY -> "个月"
+                                ScheduleFrequency.YEARLY -> "年"
+                            },
+                            range = 1..99,
+                            onChange = { interval = it },
+                        )
 
-                    Spacer(Modifier.height(Spacing.xs))
-                    StepperRow(
-                        label = "间隔",
-                        value = interval,
-                        suffix = when (frequency) {
-                            ScheduleFrequency.DAILY -> "天"
-                            ScheduleFrequency.WEEKLY -> "周"
-                            ScheduleFrequency.MONTHLY -> "个月"
-                            ScheduleFrequency.YEARLY -> "年"
-                        },
-                        range = 1..99,
-                        onChange = { interval = it },
-                    )
+                        when (frequency) {
+                            ScheduleFrequency.WEEKLY -> {
+                                FieldLabel("每周哪几天")
+                                WeekdayRow(
+                                    selected = weekdays,
+                                    onToggle = { day ->
+                                        weekdays = if (day in weekdays) weekdays - day else weekdays + day
+                                    },
+                                )
+                            }
 
-                    when (frequency) {
-                        ScheduleFrequency.WEEKLY -> {
-                            FieldLabel("每周哪几天")
-                            WeekdayRow(
-                                selected = weekdays,
-                                onToggle = { day ->
-                                    weekdays = if (day in weekdays) weekdays - day else weekdays + day
-                                },
-                            )
-                        }
+                            ScheduleFrequency.MONTHLY -> {
+                                StepperRow(
+                                    label = "每月几号",
+                                    value = dayOfMonth,
+                                    suffix = "日",
+                                    range = 1..31,
+                                    onChange = { dayOfMonth = it },
+                                    hint = "遇到小月自动记在月末",
+                                )
+                            }
 
-                        ScheduleFrequency.MONTHLY -> {
-                            StepperRow(
-                                label = "每月几号",
-                                value = dayOfMonth,
-                                suffix = "日",
-                                range = 1..31,
-                                onChange = { dayOfMonth = it },
-                                hint = "遇到小月自动记在月末",
-                            )
-                        }
+                            ScheduleFrequency.YEARLY -> {
+                                StepperRow(
+                                    label = "几月",
+                                    value = monthOfYear,
+                                    suffix = "月",
+                                    range = 1..12,
+                                    onChange = { monthOfYear = it },
+                                )
+                                StepperRow(
+                                    label = "几号",
+                                    value = dayOfMonth,
+                                    suffix = "日",
+                                    range = 1..31,
+                                    onChange = { dayOfMonth = it },
+                                    hint = "2 月 29 日在平年记在 28 日",
+                                )
+                            }
 
-                        ScheduleFrequency.YEARLY -> {
-                            StepperRow(
-                                label = "几月",
-                                value = monthOfYear,
-                                suffix = "月",
-                                range = 1..12,
-                                onChange = { monthOfYear = it },
-                            )
-                            StepperRow(
-                                label = "几号",
-                                value = dayOfMonth,
-                                suffix = "日",
-                                range = 1..31,
-                                onChange = { dayOfMonth = it },
-                                hint = "2 月 29 日在平年记在 28 日",
-                            )
-                        }
-
-                        ScheduleFrequency.DAILY -> Unit
-                    }
-
-                    FieldLabel("时间与开始日期")
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = Spacing.lg),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    ) {
-                        CapsuleAction(
-                            icon = Icons.Rounded.Schedule,
-                            text = "%02d:%02d".format(timeOfDay.hour, timeOfDay.minute),
-                        ) {
-                            TimePickerDialog(
-                                context,
-                                { _, hour, minute -> timeOfDay = LocalTime.of(hour, minute) },
-                                timeOfDay.hour,
-                                timeOfDay.minute,
-                                true,
-                            ).show()
-                        }
-                        CapsuleAction(
-                            icon = Icons.Rounded.CalendarToday,
-                            text = startDate.format(DATE_FORMAT),
-                        ) {
-                            DatePickerDialog(
-                                context,
-                                { _, year, month, day -> startDate = LocalDate.of(year, month + 1, day) },
-                                startDate.year,
-                                startDate.monthValue - 1,
-                                startDate.dayOfMonth,
-                            ).show()
+                            ScheduleFrequency.DAILY -> Unit
                         }
                     }
 
-                    Spacer(Modifier.height(Spacing.xs))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = Spacing.lg),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    ) {
-                        CapsuleAction(
-                            icon = Icons.Rounded.EventBusy,
-                            text = endDate?.format(DATE_FORMAT) ?: "不限结束",
-                            muted = endDate == null,
+                    SectionCard("什么时候结束") {
+                        FieldLabel("开始时间")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Spacing.lg),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                         ) {
-                            DatePickerDialog(
-                                context,
-                                { _, year, month, day ->
-                                    endDate = LocalDate.of(year, month + 1, day)
-                                },
-                                endDate?.year ?: startDate.year,
-                                (endDate?.monthValue ?: startDate.monthValue) - 1,
-                                endDate?.dayOfMonth ?: startDate.dayOfMonth,
-                            ).show()
+                            CapsuleAction(
+                                icon = Icons.Rounded.Schedule,
+                                text = "%02d:%02d".format(timeOfDay.hour, timeOfDay.minute),
+                            ) {
+                                TimePickerDialog(
+                                    context,
+                                    { _, hour, minute -> timeOfDay = LocalTime.of(hour, minute) },
+                                    timeOfDay.hour,
+                                    timeOfDay.minute,
+                                    true,
+                                ).show()
+                            }
+                            CapsuleAction(
+                                icon = Icons.Rounded.CalendarToday,
+                                text = startDate.format(DATE_FORMAT),
+                            ) {
+                                DatePickerDialog(
+                                    context,
+                                    { _, year, month, day ->
+                                        startDate = LocalDate.of(year, month + 1, day)
+                                    },
+                                    startDate.year,
+                                    startDate.monthValue - 1,
+                                    startDate.dayOfMonth,
+                                ).show()
+                            }
                         }
-                        if (endDate != null) {
-                            Text(
-                                text = "清除",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
+
+                        FieldLabel("结束条件")
+                        PillRow(
+                            options = listOf(
+                                EndMode.NEVER to "永不结束",
+                                EndMode.UNTIL_DATE to "指定日期",
+                                EndMode.AFTER_COUNT to "执行 N 期",
+                            ),
+                            selected = endMode,
+                            onSelect = { mode ->
+                                endMode = mode
+                                // 切到「指定日期」时给一个默认值，避免用户看到空胶囊还不知道要点它
+                                if (mode == EndMode.UNTIL_DATE && endDate == null) {
+                                    endDate = startDate
+                                }
+                            },
+                            modifier = Modifier.padding(horizontal = Spacing.lg),
+                        )
+
+                        when (endMode) {
+                            EndMode.NEVER -> Text(
+                                text = "一直执行，直到你手动暂停或删除这条规则",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = Spacing.xl),
+                            )
+
+                            EndMode.UNTIL_DATE -> Row(
                                 modifier = Modifier
-                                    .clip(CircleShape)
-                                    .clickable { endDate = null }
-                                    .padding(horizontal = Spacing.xs, vertical = 4.dp),
+                                    .fillMaxWidth()
+                                    .padding(horizontal = Spacing.lg),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            ) {
+                                CapsuleAction(
+                                    icon = Icons.Rounded.EventBusy,
+                                    text = endDate?.format(DATE_FORMAT) ?: "选择结束日期",
+                                    muted = endDate == null,
+                                ) {
+                                    DatePickerDialog(
+                                        context,
+                                        { _, year, month, day ->
+                                            endDate = LocalDate.of(year, month + 1, day)
+                                        },
+                                        endDate?.year ?: startDate.year,
+                                        (endDate?.monthValue ?: startDate.monthValue) - 1,
+                                        endDate?.dayOfMonth ?: startDate.dayOfMonth,
+                                    ).show()
+                                }
+                                if (endDate != null) {
+                                    Text(
+                                        text = "清除",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .clickable { endDate = null }
+                                            .padding(horizontal = Spacing.xs, vertical = 4.dp),
+                                    )
+                                }
+                            }
+
+                            EndMode.AFTER_COUNT -> StepperRow(
+                                label = "执行期数",
+                                value = maxOccurrences,
+                                suffix = "期",
+                                range = 1..999,
+                                onChange = { maxOccurrences = it },
+                                hint = "生成满这么多期后自动停止",
+                            )
+                        }
+
+                        if (endMode == EndMode.UNTIL_DATE && endDate != null && endDate!!.isBefore(startDate)) {
+                            Text(
+                                text = "结束日期不能早于开始日期",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = Spacing.xl),
                             )
                         }
                     }
 
-                    StepperRow(
-                        label = "最多执行",
-                        value = maxOccurrences,
-                        suffix = "期",
-                        range = 0..999,
-                        onChange = { maxOccurrences = it },
-                        hint = "0 表示不限",
-                    )
-
-                    FieldLabel("到期时")
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = Spacing.lg),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    ) {
-                        BehaviorOption(
-                            title = "自动入账",
-                            description = "到点直接记一笔",
-                            selected = behavior == ScheduleBehavior.AUTO_POST,
-                            onClick = { behavior = ScheduleBehavior.AUTO_POST },
-                            modifier = Modifier.weight(1f),
-                        )
-                        BehaviorOption(
-                            title = "先提醒我",
-                            description = "生成待确认，由你点入账",
-                            selected = behavior == ScheduleBehavior.NEED_CONFIRM,
-                            onClick = { behavior = ScheduleBehavior.NEED_CONFIRM },
-                            modifier = Modifier.weight(1f),
-                        )
+                    SectionCard("到期怎么做") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Spacing.lg),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        ) {
+                            BehaviorOption(
+                                title = "自动入账",
+                                description = "到点直接记一笔",
+                                selected = behavior == ScheduleBehavior.AUTO_POST,
+                                onClick = { behavior = ScheduleBehavior.AUTO_POST },
+                                modifier = Modifier.weight(1f),
+                            )
+                            BehaviorOption(
+                                title = "先提醒我",
+                                description = "生成待确认，由你点入账",
+                                selected = behavior == ScheduleBehavior.NEED_CONFIRM,
+                                onClick = { behavior = ScheduleBehavior.NEED_CONFIRM },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
 
-                    FieldLabel("备注（也是规则名称）")
-                    NoteField(value = note, onValueChange = { note = it })
-
-                    Spacer(Modifier.height(Spacing.xl))
+                    Spacer(Modifier.height(Spacing.sm))
                 }
 
                 // 底部主按钮：始终可见，不用滚到底才能保存
@@ -820,6 +929,17 @@ private fun AmountField(
                     }
                     inner()
                 },
+            )
+        }
+
+        // 输入不合法时说清原因：只把保存按钮变灰，用户不知道是超了位数还是格式不对
+        val parsed = Money.parseYuan(amountText)
+        if (amountText.isNotBlank() && (parsed == null || !parsed.isPositive())) {
+            Text(
+                text = "金额需为数字，最多 9 位整数、2 位小数",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = Spacing.xl),
             )
         }
 
@@ -1296,3 +1416,12 @@ private fun nextRunLabel(rule: ScheduleRule): String {
     val next = ScheduleCalculator.nextOccurrence(rule, LocalDateTime.now()) ?: return "已结束"
     return "下次 " + next.format(DateTimeFormatter.ofPattern("M月d日 HH:mm"))
 }
+
+/**
+ * 结束条件的三选一。
+ *
+ * 领域层仍然只有 `endDate` 与 `maxOccurrences` 两个字段，这里只是它们的前端语义：
+ * 同时摆出「结束日期」和「最多执行」两个控件时，用户无法判断哪个在生效，
+ * 而且清空其中一个并不会让另一个失效。
+ */
+private enum class EndMode { NEVER, UNTIL_DATE, AFTER_COUNT }

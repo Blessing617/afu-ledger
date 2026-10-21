@@ -10,6 +10,7 @@ import com.afu.ledger.auto.RecordDetectedPaymentUseCase
 import com.afu.ledger.auto.keepalive.KeepAliveStateStore
 import com.afu.ledger.data.backup.BackupManager
 import com.afu.ledger.data.local.AppDatabase
+import com.afu.ledger.data.prefs.AssetPreferences
 import com.afu.ledger.data.prefs.ThemePreferences
 import com.afu.ledger.data.repository.AccountRepository
 import com.afu.ledger.data.repository.BudgetRepository
@@ -64,6 +65,9 @@ class AppContainer(context: Context) {
     )
 
     val themePreferences: ThemePreferences = ThemePreferences(context.applicationContext)
+
+    /** 资产页的显示偏好（金额隐私遮罩）；不属于账本数据，不参与备份。 */
+    val assetPreferences: AssetPreferences = AssetPreferences(context.applicationContext)
 
     val autoLedgerSettings: AutoLedgerSettingsRepository =
         AutoLedgerSettingsRepository(context.applicationContext)

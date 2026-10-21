@@ -92,10 +92,10 @@ class PaymentPageDetectorTest {
     // ---- 不该触发的情况 ----
 
     @Test
-    fun `支付宝支付成功结果页不入账`() {
-        // 真机 2026-10-20：这一页能凑够「付款方式 / 当前状态」两个强字段，
-        // 但它是结果页，不是账单详情页；同一笔付款会先在这个页面被识别一次。
-        val reason = miss(
+    fun `支付宝支付成功结果页也入账并标记来源`() {
+        // 真机 2026-10-21：结果页最早出现，必须在这里就弹窗。
+        // 同一笔随后出现在账单详情页时，由会话去重挡住第二次（见 PaymentSessionDeduperTest）。
+        val draft = hit(
             releaseDetector.detect(
                 PageSnapshot.ofTexts(
                     PaymentPageRules.ALIPAY_PACKAGE,
@@ -107,7 +107,10 @@ class PaymentPageDetectorTest {
                 ),
             ),
         )
-        assertEquals(MissReason.PAYMENT_RESULT_PAGE, reason)
+        assertEquals(Money(2000), draft.amount)
+        assertEquals(TransType.EXPENSE, draft.direction)
+        assertEquals(PaymentPageType.PAYMENT_RESULT, draft.pageType)
+        assertEquals(TimeSource.FALLBACK, draft.occurredAtSource)
     }
 
     @Test
@@ -261,8 +264,9 @@ class PaymentPageDetectorTest {
     }
 
     @Test
-    fun `支付结果页不再识别`() {
-        // 识别范围收敛为账单详情页：只有「付款成功 + 金额」而没有账单页证据的页面不入账。
+    fun `只有成功字样和金额的页面仍不识别`() {
+        // 结果页参与识别，但**正向准入没有放宽**：页面必须自己证明它是账单页/结果页
+        // （有账单标题，或凑够强字段）。只有一句「付款成功 + 金额」的页面依然不弹窗。
         assertEquals(
             MissReason.NOT_PAYMENT_PAGE,
             miss(
@@ -274,6 +278,21 @@ class PaymentPageDetectorTest {
                 ),
             ),
         )
+    }
+
+    @Test
+    fun `微信结果页无单号无时间也可入账`() {
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.WECHAT_PACKAGE,
+                    listOf("支付成功", "¥25.50", "瑞幸咖啡", "当前状态", "支付方式", "零钱"),
+                ),
+            ),
+        )
+        assertEquals(Money(2550), draft.amount)
+        assertEquals(PaymentPageType.PAYMENT_RESULT, draft.pageType)
+        assertEquals(TimeSource.FALLBACK, draft.occurredAtSource)
     }
 
     // ---- 账单详情页：发布版与 debug 版行为一致 ----

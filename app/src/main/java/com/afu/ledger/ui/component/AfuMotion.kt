@@ -68,6 +68,18 @@ object AfuMotion {
         stiffness = Spring.StiffnessMediumLow,
     )
 
+    /**
+     * 底部面板的「Q 弹」进场：比 [sheet] 更有弹性，过冲约 5%。
+     *
+     * 用它的地方必须自己处理过冲方向：面板顶部从屏幕外进来，过冲不能表现为「整体继续上移」，
+     * 否则面板底边会离开屏幕下沿、露出底页。正确做法是以底边为锚做一点点缩放（见记账面板），
+     * 这样回弹是「顶部弹一下」，底部始终贴着屏幕。
+     */
+    fun sheetBouncy(): SpringSpec<Float> = spring(
+        dampingRatio = 0.66f,
+        stiffness = Spring.StiffnessMedium,
+    )
+
     /** 时长档位（毫秒）。与规格的 200 / 260 上限对齐。 */
     const val DURATION_TAB_MS = 180
     const val DURATION_ENTER_MS = 260

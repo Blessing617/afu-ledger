@@ -788,7 +788,12 @@ private fun ReportRoute(container: AppContainer, onBack: () -> Unit) {
 private fun AssetsRoute(container: AppContainer) {
     val viewModel: AssetsViewModel = viewModel(
         factory = viewModelFactory {
-            initializer { AssetsViewModel(container.accountRepository) }
+            initializer {
+                AssetsViewModel(
+                    accountRepository = container.accountRepository,
+                    assetPreferences = container.assetPreferences,
+                )
+            }
         },
     )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -806,6 +811,8 @@ private fun AssetsRoute(container: AppContainer) {
             editing = null
             showEditor = true
         },
+        onTogglePrivacy = viewModel::toggleAmountHidden,
+        onMoveAccount = viewModel::moveAccount,
     )
 
     if (showEditor) {

@@ -29,13 +29,28 @@ class AmountInputTest {
     }
 
     @Test
-    fun `双零键一次补两位`() {
-        assertEquals("1200", appendAmountKey("12", "00"))
+    fun `带小数的金额按顺序输入`() {
+        var value = ""
+        listOf("4", "4", "6", ".", "2", "2").forEach { value = appendAmountKey(value, it) }
+        assertEquals("446.22", value)
     }
 
     @Test
-    fun `整数最多七位`() {
-        assertEquals("1234567", appendAmountKey("1234567", "8"))
+    fun `整数位可以长到九位`() {
+        var value = ""
+        "123456789".forEach { value = appendAmountKey(value, it.toString()) }
+        assertEquals("123456789", value)
+        assertEquals("123456789", appendAmountKey(value, "0"))
+    }
+
+    @Test
+    fun `整数九位后仍可加两位小数`() {
+        assertEquals("123456789.12", appendAmountKey("123456789.1", "2"))
+    }
+
+    @Test
+    fun `整数最多九位`() {
+        assertEquals("123456789", appendAmountKey("123456789", "0"))
     }
 
     @Test

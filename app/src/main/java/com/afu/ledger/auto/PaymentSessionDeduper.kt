@@ -30,9 +30,23 @@ class PaymentSessionDeduper(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
-    private data class Entry(val at: Long, val tradeNo: String?)
+    private data class Entry(val at: Long, val tradeNo: String?, val handled: Boolean = false)
 
     private val recent = LinkedHashMap<String, Entry>(maxEntries, 0.75f, true)
+
+    /**
+     * 记录「这一笔已经被用户确认入账 / 忽略」。
+     *
+     * 只靠「会话窗口」不够：用户确认后往往还会点进账单详情页看一眼，
+     * 那时窗口可能已经过期，账单页又弹一次 —— 视觉上就是「记过了还让我再记一次」。
+     * 已处理标记用更长的窗口，确保同一笔不会在后到的账单页上复活。
+     */
+    @Synchronized
+    fun markHandled(draft: PaymentDraft) {
+        val now = clock()
+        pruneExpired(now)
+        remember(sessionKey(draft), now, draft.tradeNo?.takeIf { it.isNotBlank() }, handled = true)
+    }
 
     /**
      * @return true 表示这次命中属于会话里已经出现过的那一笔，应当跳过。
@@ -51,6 +65,12 @@ class PaymentSessionDeduper(
             return false
         }
 
+        // 已经确认 / 忽略过的同一笔：即使会话窗口过了，也不该在后到的账单页再弹一次
+        if (previous.handled) {
+            remember(key, now, currentNo ?: previous.tradeNo, handled = true)
+            return true
+        }
+
         val previousNo = previous.tradeNo?.takeIf { it.isNotBlank() }
         val differentTradeNos = previousNo != null && currentNo != null && previousNo != currentNo
         if (differentTradeNos) {
@@ -66,8 +86,13 @@ class PaymentSessionDeduper(
     @Synchronized
     fun reset() = recent.clear()
 
-    private fun remember(key: String, now: Long, tradeNo: String?) {
-        recent[key] = Entry(now, tradeNo)
+    private fun remember(
+        key: String,
+        now: Long,
+        tradeNo: String?,
+        handled: Boolean = false,
+    ) {
+        recent[key] = Entry(now, tradeNo, handled)
         while (recent.size > maxEntries) {
             val oldest = recent.entries.firstOrNull() ?: return
             recent.remove(oldest.key)
@@ -80,7 +105,9 @@ class PaymentSessionDeduper(
     private fun pruneExpired(now: Long) {
         val iterator = recent.entries.iterator()
         while (iterator.hasNext()) {
-            if (now - iterator.next().value.at >= windowMillis) iterator.remove()
+            val entry = iterator.next().value
+            val window = if (entry.handled) HANDLED_WINDOW_MILLIS else windowMillis
+            if (now - entry.at >= window) iterator.remove()
         }
     }
 
@@ -94,5 +121,8 @@ class PaymentSessionDeduper(
          */
         const val DEFAULT_WINDOW_MILLIS: Long = 120_000L
         const val DEFAULT_MAX_ENTRIES: Int = 32
+
+        /** 已确认 / 忽略的同笔记录保留十分钟，防止后到的账单详情页再弹一次。 */
+        const val HANDLED_WINDOW_MILLIS: Long = 10 * 60_000L
     }
 }

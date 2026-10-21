@@ -5,12 +5,12 @@ import com.afu.ledger.domain.model.TransType
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-/** 识别到的页面类型。仅用于日志与调试，不改变入账行为。 */
+/** 识别到的页面类型。仅用于日志、弹窗来源标注与去重参考，不改变入账字段。 */
 enum class PaymentPageType {
-    /** 支付成功结果页。本期已停用，保留类型供后续变更重新启用。 */
+    /** 支付成功结果页：无交易单号、无账单时间，字段较弱但能最早一笔弹窗。 */
     PAYMENT_RESULT,
 
-    /** 账单详情页 —— 当前唯一会入账的识别目标。 */
+    /** 账单详情页：字段最全，是修正结果页信息的那一次识别。 */
     BILL_DETAIL,
 }
 

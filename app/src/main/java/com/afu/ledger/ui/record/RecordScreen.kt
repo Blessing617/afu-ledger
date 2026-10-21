@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -43,7 +46,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -53,20 +55,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.afu.ledger.domain.model.Account
 import com.afu.ledger.domain.model.Category
+import com.afu.ledger.domain.model.Money
 import com.afu.ledger.domain.model.TransType
+import com.afu.ledger.ui.component.AMOUNT_KEY_BACKSPACE
+import com.afu.ledger.ui.component.AMOUNT_KEY_SAVE
 import com.afu.ledger.ui.component.AfuMotion
+import com.afu.ledger.ui.component.AmountKeypad
 import com.afu.ledger.ui.component.accountIcon
 import com.afu.ledger.ui.component.categoryIcon
 import com.afu.ledger.ui.component.rememberMotionEnabled
@@ -114,6 +126,10 @@ fun RecordScreen(
     val motionEnabled = rememberMotionEnabled()
     val style = LocalThemeStyle.current
     val scope = rememberCoroutineScope()
+    // 键盘的长按回调会活很久，必须让它读到「最新」的界面状态
+    val liveState by rememberUpdatedState(uiState)
+    // 拖拽关闭阈值换算成像素后比较：直接拿 dp 数值和像素值比会让阈值随屏幕密度漂移
+    val dismissThresholdPx = with(LocalDensity.current) { 140.dp.toPx() }
 
     // 1f = 完全在屏幕下方，0f = 就位
     val appear = remember { Animatable(1f) }
@@ -128,9 +144,11 @@ fun RecordScreen(
     }
 
     LaunchedEffect(Unit) {
+        // 进场用更弹的弹簧：落位时过冲约 5%，再回落，形成「Q 弹」手感。
+        // 过冲方向由下面的 graphicsLayer 处理 —— 位移只走到就位，绝不继续上移。
         appear.animateTo(
             targetValue = 0f,
-            animationSpec = if (motionEnabled) AfuMotion.sheet() else snap(),
+            animationSpec = if (motionEnabled) AfuMotion.sheetBouncy() else snap(),
         )
     }
     LaunchedEffect(closing) {
@@ -154,6 +172,9 @@ fun RecordScreen(
         // 遮罩：用主题的 onSurface 而不是纯黑 —— 纯黑在浅色主题上像「断电」，
         // 用深蓝灰会让页面像「被压暗」而不是「被挡住」。
         // 用 graphicsLayer 的 alpha 表达，避免每帧重组。
+        //
+        // 遮罩**不可点击关闭**：记账时手指常在面板边缘，点一下空白就丢输入是最高频的误触。
+        // 关闭只保留「下滑、右上角 ❌、返回键」三种明确动作。
         val scrimColor = MaterialTheme.colorScheme.onSurface
         Box(
             modifier = Modifier
@@ -162,12 +183,7 @@ fun RecordScreen(
                 // alpha 才能作用于「遮罩这一层」的全部绘制。反过来写的话
                 // background 在外层、不受 alpha 影响，遮罩会变成全不透明的一整块。
                 .graphicsLayer { alpha = 0.30f * (1f - appear.value) }
-                .background(scrimColor)
-                .clickable(
-                    // 只在基本就位后可点，避免打开动画期间误触关闭
-                    enabled = appear.value < 0.05f,
-                    onClick = { requestClose() },
-                ),
+                .background(scrimColor),
         )
 
         val panelShape = RoundedCornerShape(
@@ -180,7 +196,15 @@ fun RecordScreen(
                 .fillMaxWidth()
                 .heightIn(max = maxPanelHeight)
                 .graphicsLayer {
-                    translationY = (appear.value + drag.value) * size.height
+                    // 位移只负责「从屏幕下方滑到就位」：过冲（appear < 0）不再产生位移，
+                    // 否则面板底边会离开屏幕下沿、露出底页。
+                    translationY = appear.value.coerceAtLeast(0f) * size.height + drag.value
+                    val overshoot = (-appear.value).coerceAtLeast(0f)
+                    // 过冲转成以底边为锚的轻微缩放：视觉上是「顶部弹一下」，底部不动。
+                    val bounceScale = 1f + overshoot * 0.35f
+                    scaleX = bounceScale
+                    scaleY = bounceScale
+                    transformOrigin = TransformOrigin(0.5f, 1f)
                 }
                 .clip(panelShape)
                 .background(MaterialTheme.colorScheme.surface)
@@ -210,7 +234,7 @@ fun RecordScreen(
                         },
                         onDragStopped = {
                             scope.launch {
-                                if (drag.value > 140.dp.value) {
+                                if (drag.value > dismissThresholdPx) {
                                     requestClose()
                                 } else {
                                     drag.animateTo(
@@ -303,16 +327,17 @@ fun RecordScreen(
                 )
             }
 
-            Keypad(
+            AmountKeypad(
                 canSave = uiState.canSave,
-                isEditing = uiState.isEditing,
+                saveLabel = if (uiState.isEditing) "保存" else "记账",
                 onKey = { key ->
+                    // 长按连删时，手势回调是**首次组合**时创建的那一个；直接读 uiState 会一直拿到
+                    // 按下前的金额（表现为「按住只删一个字符」）。liveState 是最新的 State，
+                    // 旧闭包读它也总能拿到当前输入。
                     when (key) {
-                        KEY_BACKSPACE -> onAmountChange(uiState.amountInput.dropLast(1))
-                        KEY_DATE -> showDatePicker = true
-                        KEY_NOTE -> showNoteEditor = true
-                        KEY_SAVE -> if (uiState.canSave) onSave() else Unit
-                        else -> onAmountChange(appendAmountKey(uiState.amountInput, key))
+                        AMOUNT_KEY_BACKSPACE -> onAmountChange(liveState.amountInput.dropLast(1))
+                        AMOUNT_KEY_SAVE -> if (liveState.canSave) onSave() else Unit
+                        else -> onAmountChange(appendAmountKey(liveState.amountInput, key))
                     }
                 },
             )
@@ -340,30 +365,12 @@ fun RecordScreen(
     }
 
     if (showNoteEditor) {
-        var draft by remember { mutableStateOf(uiState.note) }
-        AlertDialog(
-            onDismissRequest = { showNoteEditor = false },
-            title = { Text("备注") },
-            text = {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    singleLine = true,
-                    placeholder = { Text("例如：同事聚餐") },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onNoteChange(draft)
-                        showNoteEditor = false
-                    },
-                ) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showNoteEditor = false }) { Text("取消") }
+        NoteEditorSheet(
+            initial = uiState.note,
+            onDismiss = { showNoteEditor = false },
+            onConfirm = { note ->
+                onNoteChange(note)
+                showNoteEditor = false
             },
         )
     }
@@ -388,10 +395,109 @@ fun RecordScreen(
     }
 }
 
+/**
+ * 备注浮层。
+ *
+ * 不用 Material 的描边对话框：备注是「顺手补一句」，不该长得像一张表单。
+ * 这里做成一页轻量底部浮层：标题 + 单行输入 + 取消/完成，输入框只有浅色底、没有描边，
+ * 键盘弹起时整体上移，不会把输入行压在键盘下面。
+ */
+@Composable
+private fun NoteEditorSheet(
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var draft by remember { mutableStateOf(initial) }
+    val style = LocalThemeStyle.current
+    val swallowClicks = remember { MutableInteractionSource() }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss,
+                ),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = style.containerCorner,
+                            topEnd = style.containerCorner,
+                        ),
+                    )
+                    .background(MaterialTheme.colorScheme.surface)
+                    .clickable(
+                        interactionSource = swallowClicks,
+                        indication = null,
+                        onClick = {},
+                    )
+                    .navigationBarsPadding()
+                    .padding(horizontal = Spacing.xl, vertical = Spacing.md),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "备注",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onDismiss) { Text("取消") }
+                    TextButton(
+                        onClick = { onConfirm(draft.trim()) },
+                    ) { Text("完成", fontWeight = FontWeight.SemiBold) }
+                }
+                Spacer(Modifier.height(Spacing.xs))
+                BasicTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                                .padding(horizontal = Spacing.md, vertical = 14.dp),
+                        ) {
+                            if (draft.isEmpty()) {
+                                Text(
+                                    text = "例如：同事聚餐",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(Spacing.sm))
+            }
+        }
+    }
+}
+
 /** 顶部：类型切换 + 关闭 / 删除。整行与内容同一条左基线。 */
 @Composable
-private fun RecordHeader(
-    isEditing: Boolean,
+private fun RecordHeader(    isEditing: Boolean,
     type: TransType,
     onTypeChange: (TransType) -> Unit,
     onClose: () -> Unit,
@@ -753,124 +859,11 @@ private fun AccountCell(
     }
 }
 
-// —— 键盘 ——
-
-private const val KEY_BACKSPACE = "⌫"
-private const val KEY_DATE = "日期"
-private const val KEY_NOTE = "备注"
-private const val KEY_SAVE = "记账"
-
-private val KeypadRows = listOf(
-    listOf("7", "8", "9", KEY_BACKSPACE),
-    listOf("4", "5", "6", KEY_DATE),
-    listOf("1", "2", "3", KEY_NOTE),
-    listOf(".", "0", "00", KEY_SAVE),
-)
-
-/**
- * 应用内数字键盘。
- *
- * 键面用固定布局（Column + Row + weight），不用 Lazy：键盘只有 16 个键，
- * 固定布局每次点击只更新金额那一个文本节点，不会牵动整键盘重组。
- */
-@Composable
-private fun Keypad(
-    canSave: Boolean,
-    isEditing: Boolean,
-    onKey: (String) -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Spacing.md, vertical = Spacing.sm)
-            .navigationBarsPadding(),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        KeypadRows.forEach { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                row.forEach { key ->
-                    val isSave = key == KEY_SAVE
-                    val isFunc = key == KEY_DATE || key == KEY_NOTE
-                    KeypadKey(
-                        label = if (isSave && isEditing) "保存" else key,
-                        kind = when {
-                            isSave -> KeyKind.PRIMARY
-                            isFunc -> KeyKind.FUNCTION
-                            key == KEY_BACKSPACE -> KeyKind.FUNCTION
-                            else -> KeyKind.NORMAL
-                        },
-                        enabled = !isSave || canSave,
-                        onClick = { onKey(key) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-        }
-    }
-}
-
-private enum class KeyKind { NORMAL, FUNCTION, PRIMARY }
-
-@Composable
-private fun KeypadKey(
-    label: String,
-    kind: KeyKind,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val background = when (kind) {
-        KeyKind.PRIMARY -> if (enabled) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-        }
-
-        KeyKind.FUNCTION -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-        KeyKind.NORMAL -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f)
-    }
-    val contentColor = when (kind) {
-        KeyKind.PRIMARY -> MaterialTheme.colorScheme.onPrimary
-        KeyKind.FUNCTION -> MaterialTheme.colorScheme.primary
-        KeyKind.NORMAL -> MaterialTheme.colorScheme.onSurface
-    }
-    val style = LocalThemeStyle.current
-    Box(
-        modifier = modifier
-            .height(50.dp)
-            .clip(RoundedCornerShape(if (style.outlineWidth > 0.dp) 16.dp else 14.dp))
-            .background(background)
-            .then(
-                // 描边主题下给按键一圈细线，像一颗颗贴纸键
-                if (style.outlineWidth > 0.dp && kind != KeyKind.PRIMARY) {
-                    Modifier.border(
-                        width = 1.2.dp,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f),
-                        shape = RoundedCornerShape(16.dp),
-                    )
-                } else {
-                    Modifier
-                },
-            )
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            fontSize = if (kind == KeyKind.PRIMARY) 16.sp else 20.sp,
-            fontWeight = if (kind == KeyKind.PRIMARY) FontWeight.SemiBold else FontWeight.Medium,
-            color = contentColor,
-        )
-    }
-}
-
 /**
  * 金额输入规则（纯函数，便于单测）。
  *
- * - 数字：小数位已满 2 位时忽略；整数位超过 7 位时忽略
+ * - 数字：小数位已满 [Money.MAX_FRACTION_DIGITS] 位时忽略；整数位超过 [Money.MAX_INTEGER_DIGITS] 位时忽略
+ * - 整数位与小数位**分别**限制，不把两者相加当成总位数 —— 否则 `446.22` 之后就没法继续补整数位了
  * - 小数点：已存在时忽略；空串输入时补 0
  * - 退格由调用方处理
  */
@@ -884,10 +877,11 @@ internal fun appendAmountKey(current: String, key: String): String {
     val dotIndex = current.indexOf('.')
     if (dotIndex >= 0) {
         val decimals = current.length - dotIndex - 1
-        if (decimals + digits.length > 2) return current
+        if (decimals + digits.length > Money.MAX_FRACTION_DIGITS) return current
         return current + digits
     }
-    if (current.filter { it.isDigit() }.length + digits.length > 7) return current
+    val integerDigits = current.count { it.isDigit() }
+    if (integerDigits + digits.length > Money.MAX_INTEGER_DIGITS) return current
     // 前导 0 只在一位时保留（"0" + "5" → "5"）
     if (current == "0") return digits.trimStart('0').ifEmpty { "0" }
     return current + digits

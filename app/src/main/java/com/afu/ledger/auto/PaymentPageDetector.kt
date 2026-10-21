@@ -12,11 +12,11 @@ import java.time.ZoneId
  *
  * 强排除 → 列表页 → 主界面（辅助）→ **正向准入：必须是账单详情页** → 金额与方向 → 字段
  *
- * ## 本期只认账单详情页
+ * ## 结果页与账单详情页都认
  *
- * 支付结果页（「付款成功」那种）**不再参与判定**。用户明确要求「当前只想让它在账单界面
- * 点进账单才识别」，成熟产品（钱迹 / iCost）的识别范围也正是账单详情页。
- * [PaymentPageType.PAYMENT_RESULT] 保留给后续变更重新启用。
+ * 支付结果页（「付款成功」那种）与账单详情页都会产出 [PaymentDraft]，只是 `pageType` 不同。
+ * 同一笔付款在结果页先命中时立即弹窗；随后账单详情页命中会被会话去重挡住（或合并进同一张卡片），
+ * 不会记成两笔。结果页没有交易单号与账单时间，指纹与字段都更弱，这是已知且可接受的代价。
  *
  * @param debugPackageName debug 构建传自己的 applicationId，用于放行内置模拟页面；
  *   发布版传 null，此时只认微信与支付宝。
@@ -61,16 +61,16 @@ class PaymentPageDetector(
 
         val tradeNo = TradeNoExtractor.extract(fields)
 
-        // ④.5 支付结果页不参与入账。
-        //     支付宝的「支付成功」页会带「付款方式」等字段，能凑够强证据门槛，
-        //     但它不是账单详情页 —— 同一笔付款在「聚合收款」与「支付成功」两页各命中一次，
-        //     正是 2026-10-20 重复记账的直接原因之一。结果页不弹，账单详情页照常。
+        // ④.5 支付结果页（「付款成功 / 支付成功」）也参与识别。
+        //
+        //     10-20 曾把结果页整体排除，用来消除「同一笔付款在两页各记一次」；真机用一天后
+        //     的副作用更严重：支付完成那一刻识别不到，必须再点进账单详情页才弹窗 —— 等于
+        //     「支付过程中没有识别」。现在结果页正常产出草稿，同笔去重交给会话层
+        //     （同包名 + 同金额 + 同方向，120 秒），并且结果页与随后账单页会合并成同一张卡片。
         //
         //     判据刻意保守：**没有交易单号、没有账单标题、也没有任何账单时间字段**才算结果页。
-        //     支付宝旧版账单详情页常常不渲染单号，但它一定有「支付时间」，因此不会被误杀。
-        if (isPaymentResultPage(fields, pageText, tradeNo)) {
-            return DetectionResult.Missed(MissReason.PAYMENT_RESULT_PAGE)
-        }
+        //     支付宝旧版账单详情页常常不渲染单号，但它一定有「支付时间」，因此不会被误判。
+        val isResultPage = isPaymentResultPage(fields, pageText, tradeNo)
 
         // ⑤ 金额与方向
         val amountResult = AmountParser.parseTransaction(lines, allowBareAmount = true)
@@ -90,7 +90,7 @@ class PaymentPageDetector(
         val direction = amountDirection ?: statusDirection(pageText)
             ?: return DetectionResult.Missed(MissReason.UNKNOWN_DIRECTION)
 
-        // ⑥ 账单时间：解析失败才回退识别时刻，并标记来源
+        // ⑥ 账单时间：结果页没有时间字段，只能回退识别时刻并标记来源
         val time = BillTimeExtractor.extract(fields, zone)
         val occurredAt = time?.epochMillis ?: System.currentTimeMillis()
         val occurredAtSource = if (time != null) TimeSource.PAGE else TimeSource.FALLBACK
@@ -104,7 +104,7 @@ class PaymentPageDetector(
                 pageCategory = fields.valueOf("账单分类", "交易分类", "分类"),
                 source = PaymentPageRules.sourceLabel(snapshot.packageName),
                 sourcePackage = snapshot.packageName,
-                pageType = PaymentPageType.BILL_DETAIL,
+                pageType = if (isResultPage) PaymentPageType.PAYMENT_RESULT else PaymentPageType.BILL_DETAIL,
                 occurredAt = occurredAt,
                 occurredAtSource = occurredAtSource,
                 capturedAt = System.currentTimeMillis(),

@@ -154,6 +154,10 @@ private class FakeAccountDao(private val accounts: List<AccountEntity>) : Accoun
 
     override suspend fun deleteById(id: Long) = Unit
 
+    override suspend fun nextSortOrder(): Int = accounts.size
+
+    override suspend fun setSortOrder(id: Long, sortOrder: Int) = Unit
+
     override fun observeAll(): Flow<List<AccountEntity>> = flowOf(accounts)
 
     override fun observeActive(): Flow<List<AccountEntity>> =
