@@ -1,8 +1,7 @@
 package com.afu.ledger.ui.schedule
 
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import android.view.WindowManager
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -10,8 +9,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,9 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
@@ -99,13 +94,18 @@ import com.afu.ledger.domain.schedule.ScheduleRule
 import com.afu.ledger.schedule.PendingOccurrenceStore
 import com.afu.ledger.ui.component.AfuButton
 import com.afu.ledger.ui.component.AfuMotion
+import com.afu.ledger.ui.component.ModalScrim
 import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.component.IconChoiceRow
 import com.afu.ledger.ui.component.pressScale
 import com.afu.ledger.ui.component.rememberMotionEnabled
+import com.afu.ledger.ui.component.rememberPressRepeater
 import com.afu.ledger.ui.component.rememberTapHaptic
-import com.afu.ledger.ui.component.repeatOnPress
 import com.afu.ledger.ui.component.accountIcon
+import com.afu.ledger.ui.component.DatePickerSheet
+import com.afu.ledger.ui.component.MetaChip
+import com.afu.ledger.ui.component.NumberInputSheet
+import com.afu.ledger.ui.component.TimePickerSheet
 import com.afu.ledger.ui.component.categoryIcon
 import com.afu.ledger.ui.theme.CapsuleShape
 import com.afu.ledger.ui.theme.LocalThemeStyle
@@ -442,7 +442,6 @@ private fun ScheduleEditorPage(
     onDismiss: () -> Unit,
     onSave: (ScheduleRule) -> Unit,
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val motionEnabled = rememberMotionEnabled()
     // 0 = 在屏幕下方，1 = 就位。用 Animatable + graphicsLayer：
@@ -507,6 +506,12 @@ private fun ScheduleEditorPage(
     var behavior by remember { mutableStateOf(initial?.behavior ?: ScheduleBehavior.AUTO_POST) }
     var note by remember { mutableStateOf(initial?.note ?: "") }
 
+    // 日期 / 时间 / 数字快选：全部走与记账面板同款的选择器
+    var showStartTimePicker by remember { mutableStateOf(false) }
+    var showStartDatePicker by remember { mutableStateOf(false) }
+    var showEndDatePicker by remember { mutableStateOf(false) }
+    var numberField by remember { mutableStateOf<NumberField?>(null) }
+
     val typeCategories = categories.filter { it.type == type }
     val amount = Money.parseYuan(amountText)
     val endValid = when (endMode) {
@@ -570,12 +575,14 @@ private fun ScheduleEditorPage(
             val dismissThresholdPx = with(LocalDensity.current) { 120.dp.toPx() }
             var dragOffset by remember { mutableFloatStateOf(0f) }
 
-            // 遮罩：与预算面板一致 —— 页面变暗，但**不可点击关闭**
+            // 遮罩：与预算面板一致 —— 页面变暗，但**不可点击关闭**。
+            // 这里的 appear 语义是「0 = 在屏幕下方，1 = 就位」，透明度直接跟 appear 走；
+            // 记账 / 预算面板的 appear 相反（1 = 下方），那边才是 (1 - appear)。
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = 0.30f * (1f - appear.value.coerceIn(0f, 1f)) }
-                    .background(MaterialTheme.colorScheme.onSurface),
+                    .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
+                    .background(ModalScrim),
             )
 
             val view = LocalView.current
@@ -733,6 +740,7 @@ private fun ScheduleEditorPage(
                             },
                             range = 1..99,
                             onChange = { interval = it },
+                            onValueClick = { numberField = NumberField.INTERVAL },
                         )
 
                         when (frequency) {
@@ -754,6 +762,7 @@ private fun ScheduleEditorPage(
                                     range = 1..31,
                                     onChange = { dayOfMonth = it },
                                     hint = "遇到小月自动记在月末",
+                                    onValueClick = { numberField = NumberField.DAY },
                                 )
                             }
 
@@ -764,6 +773,7 @@ private fun ScheduleEditorPage(
                                     suffix = "月",
                                     range = 1..12,
                                     onChange = { monthOfYear = it },
+                                    onValueClick = { numberField = NumberField.MONTH },
                                 )
                                 StepperRow(
                                     label = "几号",
@@ -772,6 +782,7 @@ private fun ScheduleEditorPage(
                                     range = 1..31,
                                     onChange = { dayOfMonth = it },
                                     hint = "2 月 29 日在平年记在 28 日",
+                                    onValueClick = { numberField = NumberField.DAY },
                                 )
                             }
 
@@ -787,32 +798,16 @@ private fun ScheduleEditorPage(
                                 .padding(horizontal = Spacing.lg),
                             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                         ) {
-                            CapsuleAction(
+                            MetaChip(
                                 icon = Icons.Rounded.Schedule,
-                                text = "%02d:%02d".format(timeOfDay.hour, timeOfDay.minute),
-                            ) {
-                                TimePickerDialog(
-                                    context,
-                                    { _, hour, minute -> timeOfDay = LocalTime.of(hour, minute) },
-                                    timeOfDay.hour,
-                                    timeOfDay.minute,
-                                    true,
-                                ).show()
-                            }
-                            CapsuleAction(
+                                label = "%02d:%02d".format(timeOfDay.hour, timeOfDay.minute),
+                                onClick = { showStartTimePicker = true },
+                            )
+                            MetaChip(
                                 icon = Icons.Rounded.CalendarToday,
-                                text = startDate.format(DATE_FORMAT),
-                            ) {
-                                DatePickerDialog(
-                                    context,
-                                    { _, year, month, day ->
-                                        startDate = LocalDate.of(year, month + 1, day)
-                                    },
-                                    startDate.year,
-                                    startDate.monthValue - 1,
-                                    startDate.dayOfMonth,
-                                ).show()
-                            }
+                                label = startDate.format(DATE_FORMAT),
+                                onClick = { showStartDatePicker = true },
+                            )
                         }
 
                         FieldLabel("结束条件")
@@ -850,21 +845,12 @@ private fun ScheduleEditorPage(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                             ) {
-                                CapsuleAction(
+                                MetaChip(
                                     icon = Icons.Rounded.EventBusy,
-                                    text = endDate?.format(DATE_FORMAT) ?: "选择结束日期",
+                                    label = endDate?.format(DATE_FORMAT) ?: "选择结束日期",
                                     muted = endDate == null,
-                                ) {
-                                    DatePickerDialog(
-                                        context,
-                                        { _, year, month, day ->
-                                            endDate = LocalDate.of(year, month + 1, day)
-                                        },
-                                        endDate?.year ?: startDate.year,
-                                        (endDate?.monthValue ?: startDate.monthValue) - 1,
-                                        endDate?.dayOfMonth ?: startDate.dayOfMonth,
-                                    ).show()
-                                }
+                                    onClick = { showEndDatePicker = true },
+                                )
                                 if (endDate != null) {
                                     Text(
                                         text = "清除",
@@ -885,6 +871,7 @@ private fun ScheduleEditorPage(
                                 range = 1..999,
                                 onChange = { maxOccurrences = it },
                                 hint = "生成满这么多期后自动停止",
+                                onValueClick = { numberField = NumberField.COUNT },
                             )
                         }
 
@@ -938,7 +925,62 @@ private fun ScheduleEditorPage(
             }
         }
     }
+
+    // —— 与记账面板同款的日期 / 时间 / 数字选择器 ——
+    if (showStartTimePicker) {
+        TimePickerSheet(
+            initialHour = timeOfDay.hour,
+            initialMinute = timeOfDay.minute,
+            onPick = { hour, minute -> timeOfDay = LocalTime.of(hour, minute) },
+            onDismiss = { showStartTimePicker = false },
+        )
+    }
+    if (showStartDatePicker) {
+        DatePickerSheet(
+            initialSelectedMillis = startDate.toEpochDay() * MILLIS_PER_DAY,
+            onPick = { millis -> startDate = millisToLocalDate(millis) },
+            onDismiss = { showStartDatePicker = false },
+        )
+    }
+    if (showEndDatePicker) {
+        DatePickerSheet(
+            initialSelectedMillis = (endDate ?: startDate).toEpochDay() * MILLIS_PER_DAY,
+            onPick = { millis -> endDate = millisToLocalDate(millis) },
+            onDismiss = { showEndDatePicker = false },
+        )
+    }
+    numberField?.let { field ->
+        val (title, range, value) = when (field) {
+            NumberField.INTERVAL -> Triple("间隔", 1..99, interval)
+            NumberField.DAY -> Triple("每月几号", 1..31, dayOfMonth)
+            NumberField.MONTH -> Triple("每年几月", 1..12, monthOfYear)
+            NumberField.COUNT -> Triple("执行期数", 1..99, maxOccurrences.coerceAtMost(99))
+        }
+        NumberInputSheet(
+            title = title,
+            initial = value,
+            range = range,
+            onConfirm = { picked ->
+                when (field) {
+                    NumberField.INTERVAL -> interval = picked
+                    NumberField.DAY -> dayOfMonth = picked
+                    NumberField.MONTH -> monthOfYear = picked
+                    NumberField.COUNT -> maxOccurrences = picked
+                }
+            },
+            onDismiss = { numberField = null },
+        )
+    }
 }
+
+/** 日期选择器用 UTC 毫秒，LocalDate 与它的换算必须显式走 UTC，否则跨时区会差一天。 */
+private const val MILLIS_PER_DAY = 86_400_000L
+
+private fun millisToLocalDate(millis: Long): LocalDate =
+    java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+
+/** 可点开数字快选面板的字段。 */
+private enum class NumberField { INTERVAL, DAY, MONTH, COUNT }
 
 /** 金额区：大字号、无边框，点击直接弹系统数字键盘；上面是收支分段。 */
 @Composable
@@ -1172,6 +1214,7 @@ private fun StepperRow(
     range: IntRange,
     onChange: (Int) -> Unit,
     hint: String? = null,
+    onValueClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -1198,9 +1241,12 @@ private fun StepperRow(
             Text(
                 text = "$value$suffix",
                 style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .width(88.dp)
-                    .padding(horizontal = 2.dp),
+                    .clip(CircleShape)
+                    .clickable(enabled = onValueClick != null) { onValueClick?.invoke() }
+                    .padding(horizontal = 2.dp, vertical = 4.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
             StepButton(Icons.Rounded.Add, enabled = value < range.last) {
@@ -1224,10 +1270,9 @@ private fun StepButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val source = remember { MutableInteractionSource() }
     val haptic = rememberTapHaptic()
-    val scope = rememberCoroutineScope()
-    var press by remember { mutableStateOf<PressInteraction.Press?>(null) }
+    // 按住连续加减：起点、间隔、几号这些参数不用一下一下点几十次
+    val source = rememberPressRepeater(enabled = enabled, onRepeat = onClick)
 
     Box(
         modifier = Modifier
@@ -1242,27 +1287,14 @@ private fun StepButton(
                     MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                 },
             )
-            // 按住连续加减：间隔 / 几号 / 期数这类参数不需要一下一下点几十次
-            .repeatOnPress(
+            .clickable(
+                interactionSource = source,
+                indication = LocalIndication.current,
                 enabled = enabled,
-                onPress = {
-                    if (press == null) {
-                        haptic()
-                        val interaction = PressInteraction.Press(Offset.Zero)
-                        press = interaction
-                        scope.launch { source.emit(interaction) }
-                    }
+                onClick = {
+                    haptic()
                     onClick()
                 },
-                onRelease = {
-                    press?.let { interaction ->
-                        scope.launch { source.emit(PressInteraction.Release(interaction)) }
-                    }
-                    press = null
-                },
-                firstDelayMs = 320L,
-                accelerateMs = 10L,
-                minIntervalMs = 40L,
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -1317,45 +1349,6 @@ private fun WeekdayRow(selected: Set<DayOfWeek>, onToggle: (DayOfWeek) -> Unit) 
                 )
             }
         }
-    }
-}
-
-/** 时间 / 日期胶囊按钮。 */
-@Composable
-private fun CapsuleAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    text: String,
-    muted: Boolean = false,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = Spacing.md, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (muted) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.primary
-            },
-            modifier = Modifier.size(16.dp),
-        )
-        Spacer(Modifier.width(Spacing.xs))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (muted) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-        )
     }
 }
 

@@ -3,14 +3,13 @@ package com.afu.ledger.ui.budget
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,7 +66,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
@@ -93,13 +91,16 @@ import com.afu.ledger.domain.model.TransType
 import com.afu.ledger.ui.component.AfuButton
 import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.component.AfuMotion
+import com.afu.ledger.ui.component.ModalScrim
 import com.afu.ledger.ui.component.AfuSlider
+import com.afu.ledger.ui.component.DatePickerSheet
 import com.afu.ledger.ui.component.EmptyState
+import com.afu.ledger.ui.component.NumberInputSheet
 import com.afu.ledger.ui.component.categoryIcon
 import com.afu.ledger.ui.component.pressScale
 import com.afu.ledger.ui.component.rememberMotionEnabled
+import com.afu.ledger.ui.component.rememberPressRepeater
 import com.afu.ledger.ui.component.rememberTapHaptic
-import com.afu.ledger.ui.component.repeatOnPress
 import com.afu.ledger.ui.theme.CapsuleShape
 import com.afu.ledger.ui.theme.LocalThemeStyle
 import com.afu.ledger.ui.theme.Spacing
@@ -372,6 +373,7 @@ private fun BudgetEditorSheet(
     }
     var selectedCategories by remember { mutableStateOf(initial?.categoryIds?.toSet() ?: emptySet()) }
     var threshold by remember { mutableStateOf((initial?.alertThresholdPercent ?: 80).toFloat()) }
+    var showStartDayPicker by remember { mutableStateOf(false) }
     var enabled by remember { mutableStateOf(initial?.enabled ?: true) }
 
     val amount = Money.parseYuan(amountText)
@@ -440,8 +442,8 @@ private fun BudgetEditorSheet(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = 0.30f * (1f - appear.value.coerceIn(0f, 1f)) }
-                    .background(MaterialTheme.colorScheme.onSurface),
+                    .graphicsLayer { alpha = (1f - appear.value).coerceIn(0f, 1f) }
+                    .background(ModalScrim),
             )
 
             Column(
@@ -598,9 +600,10 @@ private fun BudgetEditorSheet(
                             label = "每月起始日",
                             value = monthStartDay,
                             suffix = "日",
-                            hint = "发薪日不是 1 号就改这里",
-                            onDecrease = { monthStartDay = if (monthStartDay <= 1) 28 else monthStartDay - 1 },
-                            onIncrease = { monthStartDay = if (monthStartDay >= 28) 1 else monthStartDay + 1 },
+                            hint = "发薪日不是 1 号就改这里；小月自动按月末算",
+                            range = 1..31,
+                            onChange = { monthStartDay = it },
+                            onValueClick = { showStartDayPicker = true },
                         )
 
                         BudgetPeriodType.CUSTOM -> Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
@@ -672,7 +675,7 @@ private fun BudgetEditorSheet(
                             text = when {
                                 !nameValid -> "给预算起个名字"
                                 !amountValid -> "额度必须大于 0"
-                                !startDayValid -> "起始日需在 1–28 之间"
+                                !startDayValid -> "起始日需在 1–31 之间"
                                 else -> "自定义区间结束不能早于开始"
                             },
                             style = MaterialTheme.typography.bodySmall,
@@ -694,6 +697,16 @@ private fun BudgetEditorSheet(
                 )
             }
         }
+    }
+
+    if (showStartDayPicker) {
+        NumberInputSheet(
+            title = "每月起始日",
+            initial = monthStartDay,
+            range = 1..31,
+            onConfirm = { monthStartDay = it },
+            onDismiss = { showStartDayPicker = false },
+        )
     }
 }
 
@@ -756,15 +769,16 @@ private fun SegmentPill(text: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** 圆形加减步进器：数值类参数不弹键盘。 */
+/** 圆形加减步进器：边界处禁用（不回绕），与定时记账的步进器同一套行为。 */
 @Composable
 private fun StepperLine(
     label: String,
     value: Int,
     suffix: String,
     hint: String,
-    onDecrease: () -> Unit,
-    onIncrease: () -> Unit,
+    range: IntRange,
+    onChange: (Int) -> Unit,
+    onValueClick: (() -> Unit)? = null,
 ) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -773,14 +787,25 @@ private fun StepperLine(
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.weight(1f),
             )
-            RoundStepButton(icon = Icons.Rounded.Remove, onClick = onDecrease)
+            RoundStepButton(
+                icon = Icons.Rounded.Remove,
+                enabled = value > range.first,
+                onClick = { onChange((value - 1).coerceIn(range)) },
+            )
             Text(
                 text = "$value$suffix",
                 style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.width(52.dp),
+                modifier = Modifier
+                    .width(52.dp)
+                    .clickable(enabled = onValueClick != null) { onValueClick?.invoke() },
             )
-            RoundStepButton(icon = Icons.Rounded.Add, onClick = onIncrease)
+            RoundStepButton(
+                icon = Icons.Rounded.Add,
+                enabled = value < range.last,
+                onClick = { onChange((value + 1).coerceIn(range)) },
+            )
         }
         Text(
             text = hint,
@@ -791,46 +816,46 @@ private fun StepperLine(
 }
 
 @Composable
-private fun RoundStepButton(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
-    val source = remember { MutableInteractionSource() }
+private fun RoundStepButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
     val haptic = rememberTapHaptic()
-    val scope = rememberCoroutineScope()
-    var press by remember { mutableStateOf<PressInteraction.Press?>(null) }
+    val source = rememberPressRepeater(enabled = enabled, onRepeat = onClick)
 
     Box(
         modifier = Modifier
             .size(34.dp)
             .pressScale(source, pressedScale = 0.86f)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-            // 按住连续加减：起始日这类参数不需要一下一下点
-            .repeatOnPress(
-                enabled = true,
-                onPress = {
-                    if (press == null) {
-                        haptic()
-                        val interaction = PressInteraction.Press(Offset.Zero)
-                        press = interaction
-                        scope.launch { source.emit(interaction) }
-                    }
+            .background(
+                if (enabled) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                } else {
+                    // 到边界时保留淡底，避免这一侧像「少了个按钮」
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                },
+            )
+            .clickable(
+                interactionSource = source,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                onClick = {
+                    haptic()
                     onClick()
                 },
-                onRelease = {
-                    press?.let { interaction ->
-                        scope.launch { source.emit(PressInteraction.Release(interaction)) }
-                    }
-                    press = null
-                },
-                firstDelayMs = 320L,
-                accelerateMs = 10L,
-                minIntervalMs = 40L,
             ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = if (enabled) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+            },
             modifier = Modifier.size(18.dp),
         )
     }
@@ -902,21 +927,12 @@ private fun DateField(
     modifier: Modifier = Modifier,
     onPick: (LocalDate) -> Unit,
 ) {
-    val context = LocalContext.current
+    var showPicker by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-            .clickable {
-                val base = value ?: LocalDate.now()
-                android.app.DatePickerDialog(
-                    context,
-                    { _, year, month, day -> onPick(LocalDate.of(year, month + 1, day)) },
-                    base.year,
-                    base.monthValue - 1,
-                    base.dayOfMonth,
-                ).show()
-            }
+            .clickable { showPicker = true }
             .padding(horizontal = Spacing.md, vertical = Spacing.sm),
     ) {
         Column {
@@ -935,6 +951,20 @@ private fun DateField(
                 )
             }
         }
+    }
+
+    if (showPicker) {
+        DatePickerSheet(
+            initialSelectedMillis = (value ?: LocalDate.now()).toEpochDay() * 86_400_000L,
+            onPick = { millis ->
+                onPick(
+                    java.time.Instant.ofEpochMilli(millis)
+                        .atZone(java.time.ZoneOffset.UTC)
+                        .toLocalDate(),
+                )
+            },
+            onDismiss = { showPicker = false },
+        )
     }
 }
 
