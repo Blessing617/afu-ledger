@@ -86,21 +86,16 @@
 
 ## 截图
 
-| 首页（含预算卡片） | 预算管理 | 新建预算 |
-|---|---|---|
-| ![](docs/screenshots/home.png) | ![](docs/screenshots/budget.png) | ![](docs/screenshots/budget-editor.png) |
-
 | 记账面板 | 明细（月历 + 分组） | 收支报表 |
 |---|---|---|
 | ![](docs/screenshots/record.png) | ![](docs/screenshots/history.png) | ![](docs/screenshots/report.png) |
 
-| 资产 | 定时记账 | 编辑定时记账 |
-|---|---|---|
-| ![](docs/screenshots/assets.png) | ![](docs/screenshots/schedule.png) | ![](docs/screenshots/schedule-editor.png) |
-
 | 设置 | 外观与主题 |
 |---|---|
 | ![](docs/screenshots/settings.png) | ![](docs/screenshots/appearance.png) |
+
+> 首页 / 资产 / 预算 / 定时记账的截图暂时撤下：这些页面需要真实账本才有内容，
+> 而上游截图里带了个人的商户名与余额。后续会用一份纯演示账本重拍，不放真实数据。
 
 ## 数据与备份
 
