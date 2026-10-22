@@ -264,19 +264,81 @@ class PaymentPageDetectorTest {
     }
 
     @Test
-    fun `只有成功字样和金额的页面仍不识别`() {
-        // 结果页参与识别，但**正向准入没有放宽**：页面必须自己证明它是账单页/结果页
-        // （有账单标题，或凑够强字段）。只有一句「付款成功 + 金额」的页面依然不弹窗。
-        assertEquals(
-            MissReason.NOT_PAYMENT_PAGE,
-            miss(
-                releaseDetector.detect(
-                    PageSnapshot.ofTexts(
-                        PaymentPageRules.ALIPAY_PACKAGE,
-                        listOf("付款成功", "¥25.50", "瑞幸咖啡", "完成"),
+    fun `无强字段的极简支付成功页也按结果页入账`() {
+        // 10-22：结果页判定提前到正向准入之前。支付宝/微信的支付成功页都可能只有
+        // 「成功词 + 金额 + 完成」，凑不出任何账单强字段 —— 这正是微信支付过程中不弹窗的根因。
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.ALIPAY_PACKAGE,
+                    listOf("付款成功", "¥25.50", "瑞幸咖啡", "完成"),
+                ),
+            ),
+        )
+        assertEquals(Money(2550), draft.amount)
+        assertEquals(TransType.EXPENSE, draft.direction)
+        assertEquals(PaymentPageType.PAYMENT_RESULT, draft.pageType)
+    }
+
+    @Test
+    fun `微信支付成功页带原价与优惠仍取实付金额`() {
+        // 真机样本（小红书同款）：微信生活缴费的支付成功页。
+        // 主金额是「¥ 98.00」（¥ 与数字之间有空格），另有「原价 ¥100.00」与「优惠 …¥2.00」。
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.WECHAT_PACKAGE,
+                    listOf(
+                        "支付成功", "某缴费平台", "¥ 98.00",
+                        "原价 ¥100.00", "优惠 河南农信储蓄卡¥2.00",
+                        "为环卫工人送爱心餐", "完成",
                     ),
                 ),
             ),
+        )
+        assertEquals(Money(9800), draft.amount)
+        assertEquals(TransType.EXPENSE, draft.direction)
+        assertEquals(PaymentPageType.PAYMENT_RESULT, draft.pageType)
+        assertEquals(TimeSource.FALLBACK, draft.occurredAtSource)
+    }
+
+    @Test
+    fun `聊天页里出现支付成功文案不识别`() {
+        // 别人发来的「支付成功 ¥25.50」截图不能被当成自己的付款。
+        // 微信聊天页底部固定有「按住 说话」「语音输入」这类输入栏文案。
+        val texts = listOf(
+            "群友", "在吗", "支付成功", "¥25.50", "看看这个截图",
+            "按住 说话", "表情", "发送",
+        )
+        assertEquals(
+            MissReason.NOT_PAYMENT_PAGE,
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `公众号文章里出现支付成功文案不识别`() {
+        val texts = listOf(
+            "支付成功", "¥25.50", "教你如何开通自动记账",
+            "阅读原文", "点赞", "在看", "分享到朋友圈",
+        )
+        assertEquals(
+            MissReason.NOT_PAYMENT_PAGE,
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `超长页面不当作支付结果页`() {
+        // 聊天记录能被 OCR 读成几十行；行数上限挡住「长文里恰好出现成功词 + 金额」。
+        val texts = buildList {
+            add("支付成功")
+            add("¥25.50")
+            repeat(PaymentPageRules.MAX_RESULT_PAGE_LINES + 5) { add("聊天记录第 $it 条") }
+        }
+        assertEquals(
+            MissReason.NOT_PAYMENT_PAGE,
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
         )
     }
 
@@ -293,6 +355,85 @@ class PaymentPageDetectorTest {
         assertEquals(Money(2550), draft.amount)
         assertEquals(PaymentPageType.PAYMENT_RESULT, draft.pageType)
         assertEquals(TimeSource.FALLBACK, draft.occurredAtSource)
+    }
+
+    // ---- 红包 / 转账完成页（无单号无时间的那一刻）----
+
+    @Test
+    fun `微信红包领取页按收入入账`() {
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.WECHAT_PACKAGE,
+                    listOf("微信红包", "¥128.50", "已存入零钱", "红包详情", "看看大家的手气", "完成"),
+                ),
+            ),
+        )
+        assertEquals(Money(12850), draft.amount)
+        assertEquals(TransType.INCOME, draft.direction)
+        assertEquals(PaymentPageType.PAYMENT_RESULT, draft.pageType)
+    }
+
+    @Test
+    fun `微信转账转出完成页按支出入账`() {
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.WECHAT_PACKAGE,
+                    listOf("转账", "¥100.00", "转账成功", "已存入对方零钱", "完成"),
+                ),
+            ),
+        )
+        assertEquals(Money(10000), draft.amount)
+        assertEquals(TransType.EXPENSE, draft.direction)
+        assertEquals(PaymentPageType.PAYMENT_RESULT, draft.pageType)
+    }
+
+    @Test
+    fun `微信转账收款页按收入入账`() {
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.WECHAT_PACKAGE,
+                    listOf("转账-来自群友-某好友", "+50.00", "已收款", "已存入零钱", "完成"),
+                ),
+            ),
+        )
+        assertEquals(Money(5000), draft.amount)
+        assertEquals(TransType.INCOME, draft.direction)
+        assertEquals(PaymentPageType.PAYMENT_RESULT, draft.pageType)
+    }
+
+    @Test
+    fun `零钱充值完成页不识别`() {
+        // 「充值成功 + 已存入零钱」是账户内部转移，不是收入。
+        // 只加「场景词」限定（红包 / 转账）才能挡住它。
+        val texts = listOf("零钱", "充值成功", "¥100.00", "已存入零钱", "完成")
+        assertEquals(
+            MissReason.NOT_PAYMENT_PAGE,
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `理财收益到账页不识别`() {
+        val texts = listOf("零钱通", "收益已到账", "¥0.52", "昨日收益", "累计收益 ¥12.30")
+        assertEquals(
+            MissReason.NOT_PAYMENT_PAGE,
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `聊天页里别人发的红包截图不识别`() {
+        val texts = listOf(
+            "群友", "微信红包", "¥128.50", "已存入零钱", "看看我的红包",
+            "按住 说话", "表情",
+        )
+        assertEquals(
+            MissReason.NOT_PAYMENT_PAGE,
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
     }
 
     // ---- 账单详情页：发布版与 debug 版行为一致 ----

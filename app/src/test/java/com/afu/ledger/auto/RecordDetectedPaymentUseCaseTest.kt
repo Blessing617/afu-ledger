@@ -154,6 +154,8 @@ private class FakeAccountDao(private val accounts: List<AccountEntity>) : Accoun
 
     override suspend fun deleteById(id: Long) = Unit
 
+    override suspend fun countTransactions(id: Long): Int = 0
+
     override suspend fun nextSortOrder(): Int = accounts.size
 
     override suspend fun setSortOrder(id: Long, sortOrder: Int) = Unit

@@ -42,12 +42,15 @@ class NodePathPolicyTest {
     )
 
     @Test
-    fun `支付宝付款成功页不再识别`() {
-        // 本期只认账单详情页：支付结果页即使节点文本可读、金额清晰，也不入账。
+    fun `支付宝付款成功页在发布版也按结果页入账`() {
+        // 10-21 起结果页恢复参与识别（10-20 曾整体排除，导致支付过程中完全识别不到）。
+        // 这条页面是「当前状态 / 付款方式」都不存在的最简形态，正是本次要证明能识别的那一类。
         val result = releaseDetector.detect(
             PageSnapshot.ofTexts(PaymentPageRules.ALIPAY_PACKAGE, alipayResultTexts),
         )
-        assertTrue("期望未命中，实际 $result", result is DetectionResult.Missed)
+        assertTrue("期望命中，实际 $result", result is DetectionResult.Hit)
+        assertEquals(2550L, (result as DetectionResult.Hit).draft.amount.cents)
+        assertEquals(PaymentPageType.PAYMENT_RESULT, result.draft.pageType)
     }
 
     @Test

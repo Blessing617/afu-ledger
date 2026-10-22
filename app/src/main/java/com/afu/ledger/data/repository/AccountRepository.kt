@@ -31,16 +31,17 @@ class AccountRepository(
 
     suspend fun save(account: Account) = accountDao.update(account.toEntity())
 
-    suspend fun setArchived(id: Long, archived: Boolean) {
-        val current = accountDao.findById(id) ?: return
-        // 取消归档时重新排到末尾：否则它会带着旧 sortOrder 插回中间，
-        // 用户会以为「刚恢复的账户跑到别的位置了」。
-        val nextOrder = if (!archived) accountDao.nextSortOrder() else current.sortOrder
-        accountDao.update(current.copy(archived = archived, sortOrder = nextOrder))
-    }
+    /** 该账户名下的交易笔数，用于删除确认弹窗。 */
+    suspend fun countTransactions(accountId: Long): Int = accountDao.countTransactions(accountId)
 
-    /** 按给定顺序重排账户（只在未归档账户之间拖动的结果）。 */
+    /** 按给定顺序重排账户。 */
     suspend fun reorder(idsInOrder: List<Long>) = accountDao.reorder(idsInOrder)
 
+    /**
+     * 删除账户。
+     *
+     * 交易表的外键是 `onDelete = CASCADE`，SQLite 会把该账户名下的交易一并删掉；
+     * 调用方 MUST 先通过 [countTransactions] 告诉用户会影响多少笔。
+     */
     suspend fun delete(id: Long) = accountDao.deleteById(id)
 }

@@ -17,6 +17,39 @@ enum class DemoScenario(
         label = "微信支付成功",
         texts = listOf("支付成功", "¥25.50", "瑞幸咖啡", "完成"),
     ),
+    /** 没有「当前状态 / 支付方式」强字段的微信支付成功页（10-22 修复的正是这一类）。 */
+    WECHAT_SUCCESS_MINIMAL(
+        label = "微信支付成功（极简，无强字段）",
+        texts = listOf("支付成功", "瑞幸咖啡", "¥25.50", "完成"),
+        canvasRendered = true,
+    ),
+    /** 生活缴费版：主金额带空格，另有原价与优惠两个金额。 */
+    WECHAT_SUCCESS_DISCOUNT(
+        label = "微信支付成功（原价 + 优惠）",
+        texts = listOf(
+            "支付成功", "某缴费平台", "¥ 98.00",
+            "原价 ¥100.00", "优惠 河南农信储蓄卡¥2.00", "完成",
+        ),
+        canvasRendered = true,
+    ),
+    /** 红包领取完成页：无单号无时间，靠「红包 + 已存入零钱」判为收入。 */
+    WECHAT_RED_PACKET(
+        label = "微信红包（已存入零钱）",
+        texts = listOf("微信红包", "¥128.50", "已存入零钱", "完成"),
+        canvasRendered = true,
+    ),
+    /** 转账转出完成页：无单号无时间，靠「转账成功」判为支出。 */
+    WECHAT_TRANSFER_OUT(
+        label = "微信转账成功",
+        texts = listOf("转账", "¥100.00", "转账成功", "已存入对方零钱", "完成"),
+        canvasRendered = true,
+    ),
+    /** 负样本：聊天里别人发的支付成功截图，不该弹窗。 */
+    WECHAT_CHAT_SHOT(
+        label = "聊天页里的支付成功截图（应不识别）",
+        texts = listOf("群友", "支付成功", "¥25.50", "看看这个截图", "按住 说话", "表情"),
+        canvasRendered = true,
+    ),
     ALIPAY_BILL(
         label = "支付宝账单详情",
         texts = listOf("账单详情", "-25.50", "地铁", "交易单号 2026101822001"),

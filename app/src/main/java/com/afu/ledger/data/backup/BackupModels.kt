@@ -42,7 +42,6 @@ data class BackupAccount(
     val initialBalanceCents: Long,
     val colorArgb: Long,
     val iconKey: String,
-    val archived: Boolean = false,
     val sortOrder: Int = 0,
     val createdAt: Long = 0L,
 ) {
@@ -53,7 +52,7 @@ data class BackupAccount(
         initialBalanceCents = initialBalanceCents,
         colorArgb = colorArgb,
         iconKey = iconKey,
-        archived = archived,
+        archived = false,
         sortOrder = sortOrder,
         createdAt = createdAt,
     )
@@ -66,7 +65,6 @@ data class BackupAccount(
             initialBalanceCents = entity.initialBalanceCents,
             colorArgb = entity.colorArgb,
             iconKey = entity.iconKey,
-            archived = entity.archived,
             sortOrder = entity.sortOrder,
             createdAt = entity.createdAt,
         )

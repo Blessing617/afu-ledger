@@ -109,8 +109,57 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun migrate3To4RestoresArchivedAccounts() {
+        // v4 移除了归档概念：历史归档账户必须在升级时恢复成普通账户，历史交易全部保留。
+        helper.createDatabase(TEST_DB_3_TO_4, 3).apply {
+            execSQL(
+                """
+                INSERT INTO accounts (id, name, type, initialBalanceCents, colorArgb, iconKey, archived, sortOrder, createdAt)
+                VALUES (1, '旧卡', 'BANK', 100000, 0, 'account_balance_wallet', 1, 0, 1000)
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO accounts (id, name, type, initialBalanceCents, colorArgb, iconKey, archived, sortOrder, createdAt)
+                VALUES (2, '现金', 'CASH', 50000, 0, 'account_balance_wallet', 0, 1, 1000)
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO categories (id, name, type, iconKey, colorArgb, sortOrder, preset)
+                VALUES (10, '餐饮', 'EXPENSE', 'restaurant', 0, 0, 1)
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO transactions (id, accountId, categoryId, type, amountCents, note, occurredAt, createdAt, updatedAt, sourceType, backfilled)
+                VALUES (100, 1, 10, 'EXPENSE', 2550, '午饭', 2000, 2000, 2000, 'MANUAL', 0)
+                """.trimIndent()
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(TEST_DB_3_TO_4, 4, true).use { db ->
+            db.query("SELECT name, archived FROM accounts ORDER BY id").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("旧卡", cursor.getString(0))
+                assertEquals(0, cursor.getInt(1))
+                assertTrue(cursor.moveToNext())
+                assertEquals("现金", cursor.getString(0))
+                assertEquals(0, cursor.getInt(1))
+            }
+            // 归档账户名下的交易不能因为「恢复」而丢失
+            db.query("SELECT amountCents FROM transactions WHERE id = 100").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(2_550L, cursor.getLong(0))
+            }
+        }
+    }
+
     private companion object {
         const val TEST_DB = "migration-test-v1-to-v2.db"
         const val TEST_DB_2_TO_3 = "migration-test-v2-to-v3.db"
+        const val TEST_DB_3_TO_4 = "migration-test-v3-to-v4.db"
     }
 }

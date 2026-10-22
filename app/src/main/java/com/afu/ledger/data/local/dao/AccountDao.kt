@@ -20,6 +20,14 @@ interface AccountDao {
     @Query("DELETE FROM accounts WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    /**
+     * 该账户名下的交易笔数。
+     *
+     * 删除账户是级联删除（外键 `onDelete = CASCADE`），确认弹窗必须先告诉用户会连带删掉多少笔。
+     */
+    @Query("SELECT COUNT(*) FROM transactions WHERE accountId = :id")
+    suspend fun countTransactions(id: Long): Int
+
     /** 下一个排序值：追加到列表末尾。 */
     @Query("SELECT IFNULL(MAX(sortOrder), -1) + 1 FROM accounts")
     suspend fun nextSortOrder(): Int

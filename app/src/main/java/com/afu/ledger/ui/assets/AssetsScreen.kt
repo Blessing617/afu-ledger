@@ -62,7 +62,7 @@ import kotlin.math.roundToInt
 /**
  * 资产页。
  *
- * 结构：净资产卡 → 账户列表（一张卡里的行）→ 归档分组。
+ * 结构：净资产卡 → 账户列表（一张卡里的行）→ 新增账户入口。
  * 之前每个账户一张独立卡片、下面一大片空白，视觉上像「没加载完」；
  * 现在账户收进同一张卡，信息密度上来了，页面也不再空。
  */
@@ -126,33 +126,6 @@ fun AssetsScreen(
                     )
                 }
             }
-
-            if (uiState.archived.isNotEmpty()) {
-                item(key = "archived-title") {
-                    Text(
-                        text = "已归档",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = Spacing.xs, top = Spacing.sm),
-                    )
-                }
-                item(key = "archived-list") {
-                    AfuCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(vertical = Spacing.xs),
-                    ) {
-                        uiState.archived.forEachIndexed { index, item ->
-                            if (index > 0) SettingDivider()
-                            AccountRow(
-                                item = item,
-                                hidden = uiState.amountHidden,
-                                onClick = { onAccountClick(item) },
-                                dimmed = true,
-                            )
-                        }
-                    }
-                }
-            }
         }
 
         // 新增账户入口放在内容里：净资产卡右上角 + 列表末尾各一个。
@@ -161,7 +134,7 @@ fun AssetsScreen(
 }
 
 /**
- * 未归档账户列表：长按拖动排序。
+ * 账户列表：长按拖动排序。
  *
  * 不用第三方 reorderable 库：账户通常只有几个，`forEach + detectDragGesturesAfterLongPress`
  * 就够用，而且能精确控制「抬起、让位、落位」三件事。
@@ -449,14 +422,11 @@ private fun AccountRow(
     hidden: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    dimmed: Boolean = false,
 ) {
     val accent = Color(item.account.colorArgb)
     val balanceText = MoneyFormatter.formatWithSymbol(item.balance)
     val balanceColor = if (item.balance.cents < 0) {
         MaterialTheme.colorScheme.error
-    } else if (dimmed) {
-        MaterialTheme.colorScheme.onSurfaceVariant
     } else {
         MaterialTheme.colorScheme.onSurface
     }
@@ -471,17 +441,15 @@ private fun AccountRow(
             icon = accountIcon(item.account.iconKey),
             size = 40.dp,
             iconSize = 21.dp,
-            tint = if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant else accent,
-            background = (if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant else accent)
-                .copy(alpha = 0.16f),
+            tint = accent,
+            background = accent.copy(alpha = 0.16f),
         )
         Spacer(Modifier.width(Spacing.md))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = item.account.name,
                 style = MaterialTheme.typography.titleMedium,
-                color = if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onSurface,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
                 text = accountTypeLabel(item.account.type),

@@ -80,7 +80,7 @@ class BillRecognitionRegressionTest {
 
     @Test
     fun `非账单页一律不命中`() {
-        val names = listOf("alipay_home", "alipay_mine")
+        val names = listOf("alipay_home", "alipay_mine", "wechat_chat")
         var checked = 0
         for (name in names) {
             val fixture = loadOrNull("bills/negative/$name.txt") ?: continue
@@ -95,7 +95,7 @@ class BillRecognitionRegressionTest {
                 result is DetectionResult.Missed,
             )
         }
-        assertTrue("至少要有 1 条负样本", checked >= 1)
+        assertTrue("至少要有 3 条负样本", checked >= 3)
     }
 
     /**
@@ -323,7 +323,7 @@ class BillRecognitionRegressionTest {
     @Test
     fun `微信账单样本识别结果与期望一致`() {
         var checked = 0
-        for (index in 1..7) {
+        for (index in 1..8) {
             val path = "bills/wechat/${"%02d".format(index)}.txt"
             val fixture = loadOrNull(path) ?: continue
             checked++
@@ -355,11 +355,25 @@ class BillRecognitionRegressionTest {
                 fixture.meta("direction"),
                 draft.direction.name,
             )
-            assertEquals(
-                "${fixture.meta("id")} 账单时间",
-                fixture.meta("occurredAt"),
-                BillTimeExtractor.format(draft.occurredAt, zone),
-            )
+            if (fixture.meta("resultPage").equals("True", ignoreCase = true)) {
+                // 支付结果页没有页面时间，只能回退识别时刻
+                assertEquals(
+                    "${fixture.meta("id")} 应为支付结果页",
+                    PaymentPageType.PAYMENT_RESULT,
+                    draft.pageType,
+                )
+                assertEquals(
+                    "${fixture.meta("id")} 时间来源应为回退",
+                    TimeSource.FALLBACK,
+                    draft.occurredAtSource,
+                )
+            } else {
+                assertEquals(
+                    "${fixture.meta("id")} 账单时间",
+                    fixture.meta("occurredAt"),
+                    BillTimeExtractor.format(draft.occurredAt, zone),
+                )
+            }
             if (fixture.meta("tradeNo").isNotEmpty()) {
                 assertEquals(
                     "${fixture.meta("id")} 单号",
@@ -368,7 +382,7 @@ class BillRecognitionRegressionTest {
                 )
             }
         }
-        assertTrue("至少要有 6 条微信样本参与回归，实际 $checked", checked >= 6)
+        assertTrue("至少要有 8 条微信样本参与回归，实际 $checked", checked >= 8)
     }
 
     private fun loadOrNull(path: String): Fixture? {
