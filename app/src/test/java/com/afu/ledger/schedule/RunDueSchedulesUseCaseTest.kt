@@ -183,6 +183,21 @@ class RunDueSchedulesUseCaseTest {
     }
 
     @Test
+    fun `账户被删除后规则暂停且不生成`() = runBlocking {
+        // 1.2.0 起账户可以真正删除：规则引用的账户不存在时，必须暂停而不是写出指向空账户的账单。
+        val f = fixture(rule(), accounts = emptyList())
+
+        val report = f.useCase.run()
+
+        assertEquals(1, report.pausedRules)
+        assertEquals(0, report.autoPosted)
+        assertTrue(f.transactions.isEmpty())
+        val saved = f.ruleDao.items.first()
+        assertFalse(saved.enabled)
+        assertTrue(saved.pausedReason?.contains("账户") == true)
+    }
+
+    @Test
     fun `分类被删除后规则暂停`() = runBlocking {
         val f = fixture(rule(), categories = emptyList())
 
