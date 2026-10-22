@@ -38,5 +38,17 @@
 
 - [x] 6.1 `./gradlew assembleRelease` 打出正式签名包 —— 验证：`apksigner verify` 通过、合并 Manifest 无 `INTERNET` 权限
 - [x] 6.2 覆盖安装到真机（release 包，不装 debug 版）—— 验证：`dumpsys package` 显示的 versionName 为 1.2.0，数据仍在
-- [ ] 6.3 提交并推送到 GitHub，打 tag `v1.2.0`，创建 Release 并附 release APK —— 验证：Release 页面能看到 APK 附件
-- [ ] 6.4 清理本次产生的临时文件（抓图、脚本、中间产物）—— 验证：工作区无遗留临时文件
+- [x] 6.3 提交并推送到 GitHub，打 tag `v1.2.0`，创建 Release 并附 release APK —— 验证：Release 页面能看到 APK 附件
+- [x] 6.4 清理本次产生的临时文件（抓图、脚本、中间产物）—— 验证：工作区无遗留临时文件
+
+## 备注
+
+- 4.2 本轮跳过：`connectedDebugAndroidTest` 会安装 debug 主 APK，与已装的 release 签名不同，
+  会强制卸载、清空用户真实账本。迁移用例已提交（`MigrationTest#migrate3To4RestoresArchivedAccounts`），
+  下次在空闲设备或模拟器上跑一次即可。
+- 真机已验证（2026-10-22）：1.2.0 覆盖安装、账本数据完好；资产页无「已归档」分组；
+  账户编辑框出现「删除账户」；无交易账户显示「此操作无法撤销」；有交易账户显示
+  「「微信」下有 2 笔交易，删除后会一并清除…」。
+- 待真机确认：微信支付成功页 / 红包 / 转账完成页的弹窗（需要一笔真实支付或领取动作）。
+- 推送方式：本机 `git push` 被 GitHub 重置，改用 `afu-publish/push-via-api.mjs`（GitHub Git Data API），
+  远端提交 sha 与本地不同、内容一致；已用 `git fetch && git reset --hard origin/main` 对齐。
