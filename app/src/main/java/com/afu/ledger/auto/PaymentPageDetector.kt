@@ -10,7 +10,10 @@ import java.time.ZoneId
  *
  * ## 判定顺序（见 [PaymentPageRules] 的说明）
  *
- * 强排除 → 列表页 → 主界面（辅助）→ **正向准入：必须是账单详情页** → 金额与方向 → 字段
+ * 强排除 → 列表页 → 主界面（辅助）→ **支付结果页** →（不是结果页时）**账单页正向准入** → 金额与方向 → 字段
+ *
+ * 结果页必须先于正向准入判定：微信支付成功页只有「支付成功 / ¥98.00 / 完成」，
+ * 凑不出任何账单强字段，放在准入之后就会永远识别不到。
  *
  * ## 结果页与账单详情页都认
  *
@@ -54,23 +57,27 @@ class PaymentPageDetector(
             return DetectionResult.Missed(MissReason.MAIN_SCREEN)
         }
 
-        // ④ 正向准入：页面必须自己证明它是账单详情页
-        if (!isBillDetailPage(fields, pageText)) {
-            return DetectionResult.Missed(MissReason.NOT_PAYMENT_PAGE)
-        }
-
         val tradeNo = TradeNoExtractor.extract(fields)
 
-        // ④.5 支付结果页（「付款成功 / 支付成功」）也参与识别。
+        // ④ 支付结果页（「付款成功 / 支付成功」）先判 —— **必须先于账单页正向准入**。
         //
-        //     10-20 曾把结果页整体排除，用来消除「同一笔付款在两页各记一次」；真机用一天后
+        //     10-20 把结果页整体排除，用来消除「同一笔付款在两页各记一次」；真机用一天后
         //     的副作用更严重：支付完成那一刻识别不到，必须再点进账单详情页才弹窗 —— 等于
-        //     「支付过程中没有识别」。现在结果页正常产出草稿，同笔去重交给会话层
-        //     （同包名 + 同金额 + 同方向，120 秒），并且结果页与随后账单页会合并成同一张卡片。
+        //     「支付过程中没有识别」。10-21 恢复结果页识别时把它放在正向准入之后，于是
+        //     支付宝（付款成功页自带「当前状态」「付款方式」两个强字段）能识别，而微信
+        //     支付成功页（只有「支付成功 / ¥98.00 / 完成」）在准入那一行就被判「不是支付页」，
+        //     结果页规则永远执行不到 —— 真机表现就是「微信支付过程中不弹窗」。
         //
-        //     判据刻意保守：**没有交易单号、没有账单标题、也没有任何账单时间字段**才算结果页。
-        //     支付宝旧版账单详情页常常不渲染单号，但它一定有「支付时间」，因此不会被误判。
-        val isResultPage = isPaymentResultPage(fields, pageText, tradeNo)
+        //     判据刻意保守：**没有交易单号、没有账单标题、没有任何账单时间字段**才算结果页，
+        //     再加行数上限与聊天/内容流特征词两道防线（聊天里别人发的「支付成功 ¥25.50」截图
+        //     不能被当成自己的付款）。支付宝旧版账单详情页常常不渲染单号，但它一定有「支付时间」，
+        //     因此不会被误判成结果页。
+        val isResultPage = isPaymentResultPage(fields, pageText, lines, tradeNo)
+
+        // ⑤ 正向准入：不是结果页时，页面必须自己证明它是账单详情页
+        if (!isResultPage && !isBillDetailPage(fields, pageText)) {
+            return DetectionResult.Missed(MissReason.NOT_PAYMENT_PAGE)
+        }
 
         // ⑤ 金额与方向
         val amountResult = AmountParser.parseTransaction(lines, allowBareAmount = true)
@@ -152,16 +159,32 @@ class PaymentPageDetector(
      * - 没有账单标题
      * - 没有任何交易单号
      * - **也没有任何账单时间字段**（旧版账单一定有「支付时间」，所以不会被误杀）
+     * - 文本行数不超过 [PaymentPageRules.MAX_RESULT_PAGE_LINES]（聊天记录 / 文章能读成几十行）
+     * - 不含聊天 / 内容流特征词（「按住 说话」这种输入栏文案不会出现在结果页上）
      */
     private fun isPaymentResultPage(
         fields: BillFieldParser,
         pageText: String,
+        lines: List<String>,
         tradeNo: String?,
     ): Boolean {
         if (tradeNo != null) return false
         if (PaymentPageRules.billTitleKeywords.any { pageText.contains(it) }) return false
         if (BillTimeExtractor.labels.any { fields.hasLabel(it) }) return false
-        return PaymentPageRules.resultKeywords.any { pageText.contains(it) }
+        if (lines.size > PaymentPageRules.MAX_RESULT_PAGE_LINES) return false
+        if (PaymentPageRules.chatOrFeedKeywords.any { pageText.contains(it) }) return false
+
+        // 商户支付成功页：状态词本身就是强证据
+        if (PaymentPageRules.resultKeywords.any { pageText.contains(it) }) return true
+
+        // 红包 / 转账完成页：状态词换成「已存入零钱 / 已收款 / 转账成功」，
+        // 但必须先有「红包 / 转账」场景词兜底，否则零钱充值、理财收益这些页面会被误记。
+        // 真机文案：收红包后是「已存入零钱」，收款方转账页是「已收款」，
+        // 转出方是「转账成功 / 已存入对方零钱」。
+        val hasTransferScene = PaymentPageRules.transferSceneKeywords.any { pageText.contains(it) }
+        if (!hasTransferScene) return false
+        return PaymentPageRules.incomeResultKeywords.any { pageText.contains(it) } ||
+            PaymentPageRules.outgoingTransferKeywords.any { pageText.contains(it) }
     }
 
     /** 用页面状态词兜底判断方向。 */

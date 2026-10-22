@@ -231,6 +231,8 @@ private class FakeAccountDao(private val items: MutableList<AccountEntity>) : Ac
         items.removeAll { it.id == id }
     }
 
+    override suspend fun countTransactions(id: Long): Int = 0
+
     override suspend fun nextSortOrder(): Int = items.size
 
     override suspend fun setSortOrder(id: Long, sortOrder: Int) {

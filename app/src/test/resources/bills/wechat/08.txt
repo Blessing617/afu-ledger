@@ -1,0 +1,22 @@
+# id=wechat_08
+# source=wechat
+# sourceKind=OCR
+# note=微信生活缴费支付成功页：结果页，无单号无时间，带原价与优惠（标签与值分行）
+# matched=True
+# resultPage=True
+# amountCents=9800
+# direction=EXPENSE
+# merchant=上海一网通办缴费平台
+# tradeNo=
+# ---
+0|0|23:05
+100|0|98
+200|0|支付成功
+300|0|上海一网通办缴费平台
+400|0|¥ 98.00
+500|0|原价
+600|0|¥100.00
+700|0|优惠
+800|0|河南农信储蓄卡¥2.00
+900|0|为环卫工人送爱心餐
+1000|0|完成

@@ -70,7 +70,8 @@ fun AccountEditorDialog(
     existing: Account?,
     onDismiss: () -> Unit,
     onConfirm: (name: String, type: AccountType, initialBalance: Money, colorArgb: Long, iconKey: String) -> Unit,
-    onArchiveToggle: ((Boolean) -> Unit)? = null,
+    /** 已存在的账户才会显示「删除账户」；确认流程由调用方负责。 */
+    onDelete: (() -> Unit)? = null,
 ) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var type by remember { mutableStateOf(existing?.type ?: AccountType.WECHAT) }
@@ -272,9 +273,10 @@ fun AccountEditorDialog(
                     }
                 }
 
-                if (existing != null && onArchiveToggle != null) {
-                    TextButton(onClick = { onArchiveToggle(!existing.archived) }) {
-                        Text(if (existing.archived) "取消归档" else "归档此账户")
+                if (existing != null && onDelete != null) {
+                    // 危险操作用错误色，和「保存」明确区分；点了还要过一道确认弹窗。
+                    TextButton(onClick = onDelete) {
+                        Text("删除账户", color = MaterialTheme.colorScheme.error)
                     }
                 }
             }

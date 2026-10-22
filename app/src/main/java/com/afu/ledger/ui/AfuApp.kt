@@ -37,10 +37,12 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.ReceiptLong
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -48,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -72,6 +75,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -797,9 +801,13 @@ private fun AssetsRoute(container: AppContainer) {
         },
     )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
 
     var editing by remember { mutableStateOf<AccountWithBalance?>(null) }
     var showEditor by remember { mutableStateOf(false) }
+    // 删除确认：账户 + 该账户名下的交易笔数（笔数要查库，先打开确认框再异步填）
+    var pendingDelete by remember { mutableStateOf<AccountWithBalance?>(null) }
+    var pendingDeleteCount by remember { mutableStateOf<Int?>(null) }
 
     AssetsScreen(
         uiState = uiState,
@@ -836,9 +844,48 @@ private fun AssetsRoute(container: AppContainer) {
                 }
                 showEditor = false
             },
-            onArchiveToggle = { archived ->
-                editing?.let { viewModel.setArchived(it.account.id, archived) }
-                showEditor = false
+            onDelete = editing?.let { current ->
+                {
+                    showEditor = false
+                    pendingDeleteCount = null
+                    pendingDelete = current
+                    scope.launch {
+                        pendingDeleteCount = viewModel.countTransactions(current.account.id)
+                    }
+                }
+            },
+        )
+    }
+
+    pendingDelete?.let { item ->
+        val count = pendingDeleteCount
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除账户") },
+            text = {
+                Text(
+                    when {
+                        count == null -> "正在统计该账户的交易…"
+                        count > 0 ->
+                            "「${item.account.name}」下有 $count 笔交易，删除后会一并清除，且无法撤销。" +
+                                "建议先导出备份。"
+                        else -> "删除「${item.account.name}」？此操作无法撤销。"
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteAccount(item.account.id)
+                        pendingDelete = null
+                    },
+                    enabled = count != null,
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("取消") }
             },
         )
     }

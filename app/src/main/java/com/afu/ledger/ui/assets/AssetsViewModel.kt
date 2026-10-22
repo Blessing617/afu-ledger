@@ -57,11 +57,15 @@ class AssetsViewModel(
         viewModelScope.launch { accountRepository.save(account.copy(name = account.name.trim())) }
     }
 
-    fun setArchived(id: Long, archived: Boolean) {
-        viewModelScope.launch { accountRepository.setArchived(id, archived) }
+    /** 删除账户（连同它名下的交易，由数据库外键级联）。 */
+    fun deleteAccount(id: Long) {
+        viewModelScope.launch { accountRepository.delete(id) }
     }
 
-    /** 长按拖动后调用：只重排未归档账户，归档账户的顺序不受影响。 */
+    /** 删除确认弹窗要显示的交易笔数。 */
+    suspend fun countTransactions(id: Long): Int = accountRepository.countTransactions(id)
+
+    /** 长按拖动后调用：重排全部账户。 */
     fun moveAccount(fromIndex: Int, toIndex: Int) {
         val active = uiState.value.active
         if (fromIndex !in active.indices || toIndex !in active.indices) return
@@ -80,15 +84,11 @@ class AssetsViewModel(
     }
 
     private fun buildState(items: List<AccountWithBalance>, amountHidden: Boolean): AssetsUiState {
-        val active = items.filter { !it.account.archived }
-        val archived = items.filter { it.account.archived }
-
-        val assets = active.filter { it.balance.cents >= 0 }.sumOf { it.balance.cents }
-        val liabilities = active.filter { it.balance.cents < 0 }.sumOf { -it.balance.cents }
+        val assets = items.filter { it.balance.cents >= 0 }.sumOf { it.balance.cents }
+        val liabilities = items.filter { it.balance.cents < 0 }.sumOf { -it.balance.cents }
 
         return AssetsUiState(
-            active = active,
-            archived = archived,
+            active = items,
             totalAssets = Money(assets),
             totalLiabilities = Money(liabilities),
             netWorth = Money(assets - liabilities),

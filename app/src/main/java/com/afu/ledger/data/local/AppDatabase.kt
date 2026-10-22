@@ -5,6 +5,8 @@ import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.afu.ledger.data.local.dao.AccountDao
 import com.afu.ledger.data.local.dao.BudgetDao
 import com.afu.ledger.data.local.dao.CategoryDao
@@ -23,7 +25,22 @@ import com.afu.ledger.data.local.entity.TransactionEntity
  * 每次加版本都要：改这里 → 加 AutoMigration/Migration → 提交 `app/schemas/` 下新导出的 JSON
  * → 在 MigrationTest 里补一条「上一版本 → 新版本」的用例。
  */
-const val AFU_DB_SCHEMA_VERSION = 3
+const val AFU_DB_SCHEMA_VERSION = 4
+
+/**
+ * v3 → v4：归档概念从界面移除。
+ *
+ * 只做数据修正：历史上被归档的账户统一恢复成普通账户（`archived = 0`）。
+ * **保留 `archived` 列**，不删列 —— 删列要重建表，风险和收益不成比例；
+ * 界面与仓库层不再读写它，保留的列只是让旧库与新库的 schema 差得最少。
+ *
+ * 不用 AutoMigration：它只能处理结构差异，做不了这种值修正。
+ */
+val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("UPDATE accounts SET archived = 0 WHERE archived = 1")
+    }
+}
 
 /**
  * 应用数据库。
@@ -44,6 +61,7 @@ const val AFU_DB_SCHEMA_VERSION = 3
     exportSchema = true,
     // v2：定时记账（新增 schedule_rules 表 + 交易来源字段 + 规则期次唯一索引）。
     // v3：预算管理（新增 budgets 表）。
+    // v4：归档概念移除（值修正，见 [MIGRATION_3_4]）。
     // 用 Room 的自动迁移而不是手写 DDL：手写 CREATE TABLE 与实体定义稍有出入，
     // Room 打开数据库时的 schema 校验就会崩，普通用户遇到就是「升级后打不开」。
     autoMigrations = [
@@ -75,7 +93,10 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     DATABASE_NAME,
-                ).build().also { instance = it }
+                )
+                    .addMigrations(MIGRATION_3_4)
+                    .build()
+                    .also { instance = it }
             }
     }
 }
