@@ -7,7 +7,7 @@ enum class TransactionSource {
     SCHEDULED,
 }
 
-/** 一笔收入或支出。 */
+/** 一笔收入、支出或资产转移。 */
 data class Transaction(
     val id: Long = 0L,
     val accountId: Long,
@@ -24,4 +24,12 @@ data class Transaction(
     val scheduleRuleId: Long? = null,
     /** 是否属于事后补记（设备当时没执行）。 */
     val backfilled: Boolean = false,
+    /**
+     * 资产转移的**转入账户**。`type == TRANSFER` 时非空，`accountId` 为转出账户；
+     * 其它类型为 null。
+     *
+     * 单条记录带两个账户，而不是「一笔支出 + 一笔收入」：编辑、删除、备份都是原子的，
+     * 不会出现只删掉半边、账户余额一边回退一边没回退的状态。
+     */
+    val transferAccountId: Long? = null,
 )

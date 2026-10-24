@@ -77,6 +77,7 @@ fun TransactionEntity.toDomain(): Transaction = Transaction(
     source = parseSource(sourceType),
     scheduleRuleId = scheduleRuleId,
     backfilled = backfilled,
+    transferAccountId = transferAccountId,
 )
 
 fun Transaction.toEntity(): TransactionEntity = TransactionEntity(
@@ -92,6 +93,7 @@ fun Transaction.toEntity(): TransactionEntity = TransactionEntity(
     sourceType = source.name,
     scheduleRuleId = scheduleRuleId,
     backfilled = backfilled,
+    transferAccountId = transferAccountId,
 )
 
 fun AccountBalance.toDomain(): AccountWithBalance = AccountWithBalance(

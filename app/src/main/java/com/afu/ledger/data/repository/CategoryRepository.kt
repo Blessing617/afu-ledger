@@ -1,5 +1,8 @@
 package com.afu.ledger.data.repository
 
+import com.afu.ledger.data.local.TRANSFER_CATEGORY_COLOR
+import com.afu.ledger.data.local.TRANSFER_CATEGORY_ICON
+import com.afu.ledger.data.local.TRANSFER_CATEGORY_NAME
 import com.afu.ledger.data.local.dao.CategoryDao
 import com.afu.ledger.data.local.entity.CategoryEntity
 import com.afu.ledger.data.repository.mapper.toDomain
@@ -40,6 +43,17 @@ class CategoryRepository(
         categoryDao.insertAll(presetCategories())
     }
 
+    /**
+     * 内置「转账」分类的 id。
+     *
+     * 正常路径下它由数据库迁移（v4 → v5）或 [ensurePresetCategories] 写入；
+     * 这里再兜一次底，避免极端情况下（用户手改了备份、旧库迁移意外跳过）记账直接崩在 NOT NULL 上。
+     */
+    suspend fun transferCategoryId(): Long? {
+        categoryDao.findTransferCategory()?.let { return it.id }
+        return categoryDao.insert(transferCategoryEntity())
+    }
+
     private fun presetCategories(): List<CategoryEntity> {
         val expense = listOf(
             Triple("餐饮", "restaurant", 0xFFFF8A65),
@@ -72,6 +86,23 @@ class CategoryRepository(
                 )
             }
 
-        return build(expense, TransType.EXPENSE) + build(income, TransType.INCOME)
+        return build(expense, TransType.EXPENSE) +
+            build(income, TransType.INCOME) +
+            listOf(transferCategoryEntity())
     }
+
+    /**
+     * 转账分类。
+     *
+     * `type` 用 `TRANSFER`：分类管理与记账面板都按 `EXPENSE` / `INCOME` 过滤，
+     * 于是它天然不会出现在任何分类选单里，也不需要额外的 isSystem 标记。
+     */
+    private fun transferCategoryEntity(): CategoryEntity = CategoryEntity(
+        name = TRANSFER_CATEGORY_NAME,
+        type = TransType.TRANSFER.name,
+        iconKey = TRANSFER_CATEGORY_ICON,
+        colorArgb = TRANSFER_CATEGORY_COLOR,
+        sortOrder = 999,
+        preset = true,
+    )
 }

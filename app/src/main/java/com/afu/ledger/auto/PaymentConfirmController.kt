@@ -58,6 +58,9 @@ class PaymentConfirmController(
     /** 卡片最近一次显示的时刻，用于「刚弹出时忽略换页信号」的冷却。 */
     private var shownAtMillis: Long = 0L
 
+    /** 入账请求进行中：挡住「记一笔」的重复点击。 */
+    private var confirming: Boolean = false
+
     val isShowing: Boolean get() = overlay.isShowing
 
     fun handleHit(draft: PaymentDraft) {
@@ -169,6 +172,7 @@ class PaymentConfirmController(
         // 方向改选只对当前这张卡片有效，收起就清掉，避免影响下一笔
         directionOverride = null
         currentDraft = null
+        confirming = false
         overlay.hide()
     }
 
@@ -351,50 +355,56 @@ class PaymentConfirmController(
     private fun logVisible(draft: PaymentDraft, hitAt: Long, composeMs: Long) {
         val totalMs = SystemClock.uptimeMillis() - hitAt
         debugLog("overlay visible in ${totalMs}ms (compose ${composeMs}ms)")
-        logger.log(
-            packageName = draft.sourcePackage,
-            outcome = "弹窗可见",
-            amountCents = draft.amount.cents,
-            merchant = draft.merchant,
-            detail = "命中→可见 ${totalMs}ms（其中组合 ${composeMs}ms）",
-        )
+        logger.logDraft(draft, "弹窗可见", detail = "命中→可见 ${totalMs}ms（其中组合 ${composeMs}ms）")
     }
 
     private fun confirm(draft: PaymentDraft, accountId: Long, categoryId: Long) {
+        // 一次卡片只允许提交一次：入账是挂起调用，期间按钮仍然可点，
+        // 用户手快连点两下就是两笔「已记一笔」——真机上确实出现过同一笔被记两次。
+        if (confirming) {
+            debugLog("ignore duplicated confirm tap")
+            return
+        }
+        confirming = true
         timeoutJob?.cancel()
         val fingerprint = shownFingerprint ?: draft.fingerprint()
         // 用用户在卡片上选定的方向入账，而不是识别结果本身
         val effective = draft.copy(direction = directionOverride ?: draft.direction)
         scope.launch {
-            when (val result = container.recordDetectedPayment.execute(effective, accountId, categoryId)) {
-                is RecordResult.Success -> {
-                    // 入账成功才写长有效期：这张账单以后都不该再提示
-                    processedBills.mark(fingerprint)
-                    // 同一笔的会话键也标成已处理：防止后到的账单详情页再弹一次
-                    sessionDeduper.markHandled(effective)
-                    // 已经正式入账，待确认库里这条可以撤掉
-                    container.pendingBills.remove(fingerprint)
-                    logger.log(draft.sourcePackage, "已入账", draft.amount.cents, draft.merchant)
-                    hide()
-                    toast("已记一笔 ${MoneyFormatter.formatWithSymbol(draft.amount)}")
-                }
+            try {
+                when (val result = container.recordDetectedPayment.execute(effective, accountId, categoryId)) {
+                    is RecordResult.Success -> {
+                        // 入账成功才写长有效期：这张账单以后都不该再提示
+                        processedBills.mark(fingerprint)
+                        // 同一笔的会话键也标成已处理：防止后到的账单详情页再弹一次
+                        sessionDeduper.markHandled(effective)
+                        // 已经正式入账，待确认库里这条可以撤掉
+                        container.pendingBills.remove(fingerprint)
+                        logger.logDraft(effective, "已入账")
+                        hide()
+                        toast("已记一笔 ${MoneyFormatter.formatWithSymbol(draft.amount)}")
+                    }
 
-                RecordResult.NoAccount -> {
-                    overlayError.value = "账户不可用，请重新选择"
-                    logger.log(draft.sourcePackage, "入账失败：账户不可用", draft.amount.cents, draft.merchant)
-                    startTimeout(draft)
-                }
+                    RecordResult.NoAccount -> {
+                        overlayError.value = "账户不可用，请重新选择"
+                        logger.log(draft.sourcePackage, "入账失败：账户不可用", draft.amount.cents, draft.merchant)
+                        startTimeout(draft)
+                    }
 
-                is RecordResult.Failed -> {
-                    overlayError.value = result.message
-                    logger.log(
-                        draft.sourcePackage,
-                        "入账失败：${result.message}",
-                        draft.amount.cents,
-                        draft.merchant,
-                    )
-                    startTimeout(draft)
+                    is RecordResult.Failed -> {
+                        overlayError.value = result.message
+                        logger.log(
+                            draft.sourcePackage,
+                            "入账失败：${result.message}",
+                            draft.amount.cents,
+                            draft.merchant,
+                        )
+                        startTimeout(draft)
+                    }
                 }
+            } finally {
+                // 失败分支必须放行，否则这张卡片再也点不动
+                confirming = false
             }
         }
     }
@@ -403,7 +413,7 @@ class PaymentConfirmController(
         val fingerprint = shownFingerprint ?: draft.fingerprint()
         // 先收起，再落盘：用户点「忽略」必须立刻有反馈，不能等一次 IO。
         hide()
-        logger.log(draft.sourcePackage, "用户忽略", draft.amount.cents, draft.merchant)
+        logger.logDraft(draft, "用户忽略")
         scope.launch {
             processedBills.mark(fingerprint)
             sessionDeduper.markHandled(draft)

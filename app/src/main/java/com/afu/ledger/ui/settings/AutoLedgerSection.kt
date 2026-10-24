@@ -51,6 +51,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.afu.ledger.auto.AutoLedgerSettings
 import com.afu.ledger.auto.OcrStatus
 import com.afu.ledger.auto.RecognitionEntry
+import com.afu.ledger.auto.RecognitionLog
 import com.afu.ledger.auto.keepalive.AutoLedgerKeepAlive
 import com.afu.ledger.auto.keepalive.BatteryWhitelist
 import com.afu.ledger.domain.model.Account
@@ -249,7 +250,7 @@ fun AutoLedgerSection(
     SettingSwitchRow(
         icon = Icons.Rounded.Info,
         title = "识别日志",
-        subtitle = "只保留最近 $RecognitionLogLineLimit 条，进程结束即清空",
+        subtitle = "最近 $RecognitionLogLineLimit 条（最多 ${RecognitionLog.MAX_ENTRIES} 条 / 7 天），重启后仍保留",
         checked = settings.recognitionLogEnabled,
         onCheckedChange = onRecognitionLogChange,
     )
@@ -544,5 +545,10 @@ private fun formatEntry(entry: RecognitionEntry): String {
         ?.takeIf { it.isNotBlank() }
         ?.let { " · $it" }
         .orEmpty()
-    return "$time  ${entry.outcome}$amount$merchant"
+    // 方向与时间来源只在与默认值不同时提示，避免每行都拖一条尾巴
+    val direction = entry.direction?.takeIf { it != "EXPENSE" }?.let { " · $it" }.orEmpty()
+    val fallbackTime = entry.timeSource?.takeIf { it == "FALLBACK" }?.let { " · 时间回退" }.orEmpty()
+    // 指纹只给后 12 位：两条记录是不是同一笔，比对比全套指纹快得多
+    val fingerprint = entry.fingerprint?.takeLast(12)?.let { " · #$it" }.orEmpty()
+    return "$time  ${entry.outcome}$amount$direction$merchant$fallbackTime$fingerprint"
 }

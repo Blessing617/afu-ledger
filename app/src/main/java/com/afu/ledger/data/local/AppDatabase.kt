@@ -25,7 +25,7 @@ import com.afu.ledger.data.local.entity.TransactionEntity
  * 每次加版本都要：改这里 → 加 AutoMigration/Migration → 提交 `app/schemas/` 下新导出的 JSON
  * → 在 MigrationTest 里补一条「上一版本 → 新版本」的用例。
  */
-const val AFU_DB_SCHEMA_VERSION = 4
+const val AFU_DB_SCHEMA_VERSION = 5
 
 /**
  * v3 → v4：归档概念从界面移除。
@@ -41,6 +41,35 @@ val MIGRATION_3_4: Migration = object : Migration(3, 4) {
         db.execSQL("UPDATE accounts SET archived = 0 WHERE archived = 1")
     }
 }
+
+/**
+ * v4 → v5：资产转移。
+ *
+ * 两件事：
+ *
+ * 1. `transactions` 增加 `transferAccountId`（转入账户，可空）。
+ * 2. 插入一条 `type = 'TRANSFER'` 的「转账」分类。
+ *
+ * 第 2 步是必须的：`transactions.categoryId` 是 NOT NULL 且有外键，转移没有消费分类，
+ * 但列不能为空。用一个只在转移里引用的分类兜住，比给每一列做可空改造简单得多。
+ * 这个分类不会出现在记账面板与分类管理里 —— 两个地方都按 `EXPENSE` / `INCOME` 过滤。
+ */
+val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE transactions ADD COLUMN transferAccountId INTEGER")
+        db.execSQL(
+            "INSERT INTO categories (name, type, iconKey, colorArgb, sortOrder, preset) " +
+                "VALUES ('转账', 'TRANSFER', 'swap_horiz', ${TRANSFER_CATEGORY_COLOR}, 999, 1)",
+        )
+    }
+}
+
+/** 内置「转账」分类的颜色（与主题无关，只在极端情况下被看到）。 */
+const val TRANSFER_CATEGORY_COLOR: Long = 0xFF78909C
+
+/** 内置「转账」分类的名字与图标，迁移与首次初始化共用。 */
+const val TRANSFER_CATEGORY_NAME: String = "转账"
+const val TRANSFER_CATEGORY_ICON: String = "swap_horiz"
 
 /**
  * 应用数据库。
@@ -62,6 +91,7 @@ val MIGRATION_3_4: Migration = object : Migration(3, 4) {
     // v2：定时记账（新增 schedule_rules 表 + 交易来源字段 + 规则期次唯一索引）。
     // v3：预算管理（新增 budgets 表）。
     // v4：归档概念移除（值修正，见 [MIGRATION_3_4]）。
+    // v5：资产转移（transactions 加 transferAccountId + 内置「转账」分类，见 [MIGRATION_4_5]）。
     // 用 Room 的自动迁移而不是手写 DDL：手写 CREATE TABLE 与实体定义稍有出入，
     // Room 打开数据库时的 schema 校验就会崩，普通用户遇到就是「升级后打不开」。
     autoMigrations = [
@@ -94,7 +124,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME,
                 )
-                    .addMigrations(MIGRATION_3_4)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }

@@ -157,9 +157,52 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun migrate4To5AddsTransferColumnAndCategory() {
+        // v5 引入资产转移：交易表加 transferAccountId，并写入内置「转账」分类。
+        // 老数据的余额必须一分不变 —— 这是升级时最容易被忽略的地方。
+        helper.createDatabase(TEST_DB_4_TO_5, 4).apply {
+            execSQL(
+                """
+                INSERT INTO accounts (id, name, type, initialBalanceCents, colorArgb, iconKey, archived, sortOrder, createdAt)
+                VALUES (1, '工资卡', 'BANK', 4100000, 0, 'credit_card', 0, 0, 1000)
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO categories (id, name, type, iconKey, colorArgb, sortOrder, preset)
+                VALUES (10, '餐饮', 'EXPENSE', 'restaurant', 0, 0, 1)
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO transactions (id, accountId, categoryId, type, amountCents, note, occurredAt, createdAt, updatedAt, sourceType, backfilled)
+                VALUES (100, 1, 10, 'EXPENSE', 2550, '午饭', 2000, 2000, 2000, 'MANUAL', 0)
+                """.trimIndent()
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(TEST_DB_4_TO_5, 5, true).use { db ->
+            db.query("SELECT transferAccountId FROM transactions WHERE id = 100").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertTrue(cursor.isNull(0))
+            }
+            db.query("SELECT COUNT(*) FROM categories WHERE type = 'TRANSFER'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(1, cursor.getInt(0))
+            }
+            db.query("SELECT amountCents FROM transactions WHERE id = 100").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(2_550L, cursor.getLong(0))
+            }
+        }
+    }
+
     private companion object {
         const val TEST_DB = "migration-test-v1-to-v2.db"
         const val TEST_DB_2_TO_3 = "migration-test-v2-to-v3.db"
         const val TEST_DB_3_TO_4 = "migration-test-v3-to-v4.db"
+        const val TEST_DB_4_TO_5 = "migration-test-v4-to-v5.db"
     }
 }

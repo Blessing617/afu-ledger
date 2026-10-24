@@ -46,6 +46,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -1025,12 +1026,22 @@ private fun RecordRoute(
     )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    // 面板关掉就把输入清干净：ViewModel 活在 Activity 上，不清的话下次打开会带着上一次的金额
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.reset() }
+    }
+
+    // 打开时补一次账户列表：Room 的 Flow 只在数据变化时发射，首帧可能还没到
+    LaunchedEffect(viewModel) { viewModel.refresh() }
+
     RecordScreen(
         uiState = uiState,
+        completed = viewModel.completed,
         onTypeChange = viewModel::setType,
         onAmountChange = viewModel::setAmountInput,
         onCategorySelect = viewModel::setCategory,
         onAccountSelect = viewModel::setAccount,
+        onTransferAccountSelect = viewModel::setTransferAccount,
         onNoteChange = viewModel::setNote,
         onDateChange = viewModel::setOccurredAt,
         onSave = viewModel::save,

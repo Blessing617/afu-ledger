@@ -41,7 +41,8 @@ class AccountRepository(
      * 删除账户。
      *
      * 交易表的外键是 `onDelete = CASCADE`，SQLite 会把该账户名下的交易一并删掉；
+     * 以该账户为**转入方**的资产转移由 [AccountDao.deleteWithTransfers] 显式删除。
      * 调用方 MUST 先通过 [countTransactions] 告诉用户会影响多少笔。
      */
-    suspend fun delete(id: Long) = accountDao.deleteById(id)
+    suspend fun delete(id: Long) = accountDao.deleteWithTransfers(id)
 }

@@ -73,6 +73,7 @@ import com.afu.ledger.domain.model.Category
 import com.afu.ledger.domain.model.Money
 import com.afu.ledger.domain.model.TransType
 import com.afu.ledger.ui.component.AMOUNT_KEY_BACKSPACE
+import com.afu.ledger.ui.component.DialogScrimPolicy
 import com.afu.ledger.ui.component.ModalScrim
 import com.afu.ledger.ui.component.AMOUNT_KEY_SAVE
 import com.afu.ledger.ui.component.AfuMotion
@@ -86,6 +87,7 @@ import com.afu.ledger.ui.theme.CapsuleShape
 import com.afu.ledger.ui.theme.LocalThemeStyle
 import com.afu.ledger.ui.theme.Spacing
 import com.afu.ledger.util.DateFormatter
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
 /**
@@ -113,10 +115,13 @@ import kotlinx.coroutines.launch
 @Composable
 fun RecordScreen(
     uiState: RecordUiState,
+    /** 保存 / 删除完成的一次性事件；收到就播关闭动画。 */
+    completed: Flow<Unit>,
     onTypeChange: (TransType) -> Unit,
     onAmountChange: (String) -> Unit,
     onCategorySelect: (Long) -> Unit,
     onAccountSelect: (Long) -> Unit,
+    onTransferAccountSelect: (Long) -> Unit,
     onNoteChange: (String) -> Unit,
     onDateChange: (Long) -> Unit,
     onSave: () -> Unit,
@@ -160,8 +165,9 @@ fun RecordScreen(
             onBack()
         }
     }
-    LaunchedEffect(uiState.finished) {
-        if (uiState.finished) requestClose()
+    LaunchedEffect(Unit) {
+        // 一次性事件：消费掉就没了，面板再次打开不会因为「上次保存过」立刻关闭
+        completed.collect { requestClose() }
     }
 
     BackHandler(enabled = true) { requestClose() }
@@ -291,17 +297,20 @@ fun RecordScreen(
 
             Spacer(Modifier.height(Spacing.sm))
 
-            FieldLabel("分类")
-            CategoryGrid(
-                categories = uiState.categories,
-                selectedId = uiState.selectedCategoryId,
-                onSelect = onCategorySelect,
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .padding(horizontal = Spacing.xl),
-            )
+            // 转账没有消费分类：这一格省出来给「转入账户」，否则两个账户格会挤掉键盘
+            if (!uiState.isTransfer) {
+                FieldLabel("分类")
+                CategoryGrid(
+                    categories = uiState.categories,
+                    selectedId = uiState.selectedCategoryId,
+                    onSelect = onCategorySelect,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .padding(horizontal = Spacing.xl),
+                )
+            }
 
-            FieldLabel("账户")
+            FieldLabel(if (uiState.isTransfer) "转出账户" else "账户")
             if (uiState.accounts.isEmpty()) {
                 Text(
                     text = "还没有可用账户，请先到「资产」页创建",
@@ -318,6 +327,16 @@ fun RecordScreen(
                 )
             }
 
+            if (uiState.isTransfer && uiState.accounts.isNotEmpty()) {
+                FieldLabel("转入账户")
+                AccountGrid(
+                    accounts = uiState.accounts,
+                    selectedId = uiState.transferAccountId,
+                    onSelect = onTransferAccountSelect,
+                    modifier = Modifier.padding(horizontal = Spacing.xl),
+                )
+            }
+
             uiState.error?.let { error ->
                 Text(
                     text = error,
@@ -329,7 +348,11 @@ fun RecordScreen(
 
             AmountKeypad(
                 canSave = uiState.canSave,
-                saveLabel = if (uiState.isEditing) "保存" else "记账",
+                saveLabel = when {
+                    uiState.isEditing -> "保存"
+                    uiState.isTransfer -> "转账"
+                    else -> "记账"
+                },
                 onKey = { key ->
                     // 手势回调是首次组合时创建的，金额必须读 liveState（最新值）
                     when (key) {
@@ -406,6 +429,8 @@ private fun NoteEditorSheet(
             decorFitsSystemWindows = false,
         ),
     ) {
+        // 备注浮层要弹系统键盘，所以不隐藏输入法；只关掉系统 dim，遮罩只留自己这一层
+        DialogScrimPolicy()
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -514,7 +539,7 @@ private fun RecordHeader(    isEditing: Boolean,
     }
 }
 
-/** 支出 / 收入分段控件：选中态是实心胶囊，不是文字变色。 */
+/** 支出 / 收入 / 转账分段控件：选中态是实心胶囊，不是文字变色。 */
 @Composable
 private fun TypeSwitch(
     type: TransType,
@@ -528,7 +553,11 @@ private fun TypeSwitch(
             .padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        listOf(TransType.EXPENSE to "支出", TransType.INCOME to "收入").forEach { (item, label) ->
+        listOf(
+            TransType.EXPENSE to "支出",
+            TransType.INCOME to "收入",
+            TransType.TRANSFER to "转账",
+        ).forEach { (item, label) ->
             val selected = type == item
             Box(
                 modifier = Modifier
@@ -566,6 +595,12 @@ private fun TypeSwitch(
 private fun AmountDisplay(amountInput: String, type: TransType) {
     val display = amountInput.ifBlank { "0.00" }
     val accent = MaterialTheme.colorScheme.primary
+    // 转账是「换容器」：既不进也不出，用 ⇄ 而不是正负号，避免看一眼误以为是收支
+    val sign = when (type) {
+        TransType.EXPENSE -> "−"
+        TransType.INCOME -> "+"
+        TransType.TRANSFER -> "⇄"
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -573,7 +608,7 @@ private fun AmountDisplay(amountInput: String, type: TransType) {
         verticalAlignment = Alignment.Bottom,
     ) {
         Text(
-            text = if (type == TransType.EXPENSE) "−" else "+",
+            text = sign,
             fontSize = 24.sp,
             fontWeight = FontWeight.Medium,
             color = accent,

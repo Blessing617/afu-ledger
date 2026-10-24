@@ -9,4 +9,12 @@ data class TransactionItem(
     val categoryIcon: String,
     val categoryColorArgb: Long,
     val accountName: String,
-)
+    /** 资产转移的转入账户名；非转移为 null。 */
+    val transferToAccountName: String? = null,
+) {
+    val isTransfer: Boolean get() = transaction.transferAccountId != null
+
+    /** 列表标题：转移显示「工资卡 → 消费卡」，其它显示分类名。 */
+    val title: String
+        get() = if (isTransfer) "$accountName → ${transferToAccountName ?: "已删除账户"}" else categoryName
+}

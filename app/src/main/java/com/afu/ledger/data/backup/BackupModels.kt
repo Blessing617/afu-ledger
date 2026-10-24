@@ -21,8 +21,9 @@ object BackupFormat {
      *
      * v1：账户 / 分类 / 交易 / 定时规则
      * v2：新增 budget 数组（导入侧同时接受 v1，预算按空处理）
+     * v3：交易可带 transferAccountId（资产转移）。v1/v2 没有该字段，按普通收支还原
      */
-    const val VERSION = 2
+    const val VERSION = 3
 }
 
 @Serializable
@@ -118,6 +119,8 @@ data class BackupTransaction(
     val sourceType: String = "MANUAL",
     val scheduleRuleId: Long? = null,
     val backfilled: Boolean = false,
+    /** 资产转移的转入账户；非转移交易为 null。旧备份里没有这个字段，反序列化为 null。 */
+    val transferAccountId: Long? = null,
 ) {
     fun toEntity() = TransactionEntity(
         id = id,
@@ -132,6 +135,7 @@ data class BackupTransaction(
         sourceType = sourceType,
         scheduleRuleId = scheduleRuleId,
         backfilled = backfilled,
+        transferAccountId = transferAccountId,
     )
 
     companion object {
@@ -148,6 +152,7 @@ data class BackupTransaction(
             sourceType = entity.sourceType,
             scheduleRuleId = entity.scheduleRuleId,
             backfilled = entity.backfilled,
+            transferAccountId = entity.transferAccountId,
         )
     }
 }

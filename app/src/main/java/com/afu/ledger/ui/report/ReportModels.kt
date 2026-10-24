@@ -79,10 +79,16 @@ object ReportAggregator {
         val income = inMonth.filter { it.type == TransType.INCOME }.sumOf { it.amount.cents }
         val expense = inMonth.filter { it.type == TransType.EXPENSE }.sumOf { it.amount.cents }
 
-        // 上月结余 = 本月之前所有交易的净额（含更早月份）
+        // 上月结余 = 本月之前所有交易的净额（含更早月份）；资产转移不影响结余，跳过
         val previousBalance = transactions
             .filter { it.occurredAt < monthStart }
-            .sumOf { if (it.type == TransType.INCOME) it.amount.cents else -it.amount.cents }
+            .sumOf {
+                when (it.type) {
+                    TransType.INCOME -> it.amount.cents
+                    TransType.EXPENSE -> -it.amount.cents
+                    TransType.TRANSFER -> 0L
+                }
+            }
 
         val expenseTransactions = inMonth.filter { it.type == TransType.EXPENSE }
         val trend = buildTrend(expenseTransactions, yearMonth, zone)
