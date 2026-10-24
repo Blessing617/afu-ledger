@@ -49,4 +49,4 @@
 - [x] 6.2 `testDebugUnitTest` 全绿 — 验证：BUILD SUCCESSFUL，含新增的报表转移用例
 - [x] 6.3 打 release 包并 `adb install -r` 到真机 — 验证：versionCode 12 / versionName 1.3.0
 - [x] 6.4 真机回归：记一笔 → 再记一笔、连点保存、转账、删除转账、预算 vs 定时记账遮罩 — 验证：全程截图
-- [ ] 6.5 推送 GitHub 并发布 release（附 APK）
+- [x] 6.5 推送 GitHub 并发布 release（附 APK）— 验证：https://github.com/Blessing617/afu-ledger/releases/tag/v1.3.0
