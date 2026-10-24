@@ -50,17 +50,22 @@ fun TransactionRow(
         Spacer(Modifier.width(Spacing.md))
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
-                text = item.categoryName,
+                text = item.title,
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val subtitle = buildString {
-                append(item.accountName)
-                if (item.transaction.note.isNotBlank()) {
-                    append(" · ")
-                    append(item.transaction.note)
+            // 转移的标题已经写了「转出 → 转入」，副标题只留备注，不再重复账户名
+            val subtitle = if (item.isTransfer) {
+                item.transaction.note.ifBlank { "账户间转移" }
+            } else {
+                buildString {
+                    append(item.accountName)
+                    if (item.transaction.note.isNotBlank()) {
+                        append(" · ")
+                        append(item.transaction.note)
+                    }
                 }
             }
             Text(
@@ -75,6 +80,7 @@ fun TransactionRow(
         AmountText(
             money = item.transaction.amount,
             isExpense = item.transaction.type == TransType.EXPENSE,
+            isTransfer = item.isTransfer,
         )
     }
 }

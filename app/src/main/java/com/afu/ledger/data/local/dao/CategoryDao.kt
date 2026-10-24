@@ -31,6 +31,10 @@ interface CategoryDao {
     @Query("SELECT * FROM categories WHERE id = :id")
     suspend fun findById(id: Long): CategoryEntity?
 
+    /** 内置「转账」分类；资产转移记账时用它填 `categoryId`。 */
+    @Query("SELECT * FROM categories WHERE type = 'TRANSFER' ORDER BY id LIMIT 1")
+    suspend fun findTransferCategory(): CategoryEntity?
+
     @Query("SELECT COUNT(*) FROM categories")
     suspend fun count(): Int
 

@@ -154,6 +154,10 @@ private class FakeAccountDao(private val accounts: List<AccountEntity>) : Accoun
 
     override suspend fun deleteById(id: Long) = Unit
 
+    override suspend fun deleteIncomingTransfers(id: Long) = Unit
+
+    override suspend fun deleteWithTransfers(id: Long) = deleteById(id)
+
     override suspend fun countTransactions(id: Long): Int = 0
 
     override suspend fun nextSortOrder(): Int = accounts.size
@@ -192,6 +196,9 @@ private class FakeCategoryDao(private val categories: List<CategoryEntity>) : Ca
 
     override suspend fun findById(id: Long): CategoryEntity? =
         categories.firstOrNull { it.id == id }
+
+    override suspend fun findTransferCategory(): CategoryEntity? =
+        categories.firstOrNull { it.type == "TRANSFER" }
 
     override suspend fun count(): Int = categories.size
 

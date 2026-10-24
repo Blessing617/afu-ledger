@@ -30,7 +30,9 @@ class AutoLedgerSettingsRepository(
                 enabled = prefs[KEY_ENABLED] ?: false,
                 defaultAccountId = prefs[KEY_DEFAULT_ACCOUNT],
                 defaultCategoryId = prefs[KEY_DEFAULT_CATEGORY],
-                recognitionLogEnabled = prefs[KEY_RECOGNITION_LOG] ?: false,
+                // 默认开启：出问题时「昨天那几笔」必须查得到，否则日志等于没有。
+                // 内容只有金额、商户、方向、时间来源与指纹，不含页面原文。
+                recognitionLogEnabled = prefs[KEY_RECOGNITION_LOG] ?: true,
                 ocrEnabled = prefs[KEY_OCR_ENABLED] ?: false,
                 hideKeepAliveNotification = prefs[KEY_HIDE_KEEPALIVE_NOTIFICATION] ?: false,
             )

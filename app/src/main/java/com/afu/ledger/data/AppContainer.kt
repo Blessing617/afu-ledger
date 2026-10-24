@@ -72,8 +72,8 @@ class AppContainer(context: Context) {
     val autoLedgerSettings: AutoLedgerSettingsRepository =
         AutoLedgerSettingsRepository(context.applicationContext)
 
-    /** 识别日志只存在内存里，进程结束即清空。 */
-    val recognitionLog: RecognitionLog = RecognitionLog()
+    /** 识别日志：内存里留最近一批，同时落盘，重启后仍能查到昨天的记录。 */
+    val recognitionLog: RecognitionLog = RecognitionLog(context.applicationContext)
 
     /** 已处理过的账单指纹（忽略 / 已入账 / 刚弹过），持久化以免重启后重复打扰。 */
     val processedBills: ProcessedBillStore = ProcessedBillStore(context.applicationContext)

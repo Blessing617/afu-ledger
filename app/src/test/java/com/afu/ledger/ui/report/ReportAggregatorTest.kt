@@ -181,4 +181,30 @@ class ReportAggregatorTest {
         assertTrue(report.isEmpty)
         assertTrue(report.slices.isEmpty())
     }
+
+    @Test
+    fun `资产转移不计入收入支出与占比`() {
+        val transfer = Transaction(
+            accountId = 1L,
+            categoryId = 9L, // 内置「转账」分类，不参与任何统计
+            type = TransType.TRANSFER,
+            amount = Money(556_521),
+            note = "",
+            occurredAt = at(month.monthValue, 5),
+            createdAt = at(month.monthValue, 5),
+            updatedAt = at(month.monthValue, 5),
+            transferAccountId = 2L,
+        )
+        val transactions = listOf(expense(3_000, 1L, 6), transfer)
+
+        val report = ReportAggregator.build(transactions, categories, month, LocalDate.of(2026, 10, 20))
+
+        // 支出只有那笔 30.00；转移的 5565.21 一分都不该进报表
+        assertEquals(3_000L, report.expenseCents)
+        assertEquals(0L, report.incomeCents)
+        assertEquals(1, report.expenseCount)
+        assertEquals(listOf("餐饮"), report.slices.map { it.name })
+        assertEquals(1, report.topTransactions.size)
+        assertEquals(0L, report.previousBalanceCents)
+    }
 }

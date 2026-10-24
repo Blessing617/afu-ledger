@@ -91,6 +91,7 @@ import com.afu.ledger.domain.model.TransType
 import com.afu.ledger.ui.component.AfuButton
 import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.component.AfuMotion
+import com.afu.ledger.ui.component.DialogScrimPolicy
 import com.afu.ledger.ui.component.ModalScrim
 import com.afu.ledger.ui.component.AfuSlider
 import com.afu.ledger.ui.component.DatePickerSheet
@@ -438,6 +439,10 @@ private fun BudgetEditorSheet(
         ),
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            // 遮罩只有一层：关掉 Dialog 自带的系统 dim，否则这里的 32% 会再叠一层，
+            // 和定时记账面板相比明显更黑
+            DialogScrimPolicy(hideKeyboardOnOpen = true)
+
             // 遮罩：不接收点击。误触空白就丢掉刚填的额度是最让人恼火的体验。
             Box(
                 modifier = Modifier

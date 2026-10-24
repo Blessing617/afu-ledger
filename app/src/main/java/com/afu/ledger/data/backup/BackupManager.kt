@@ -166,17 +166,22 @@ class BackupManager(
         }
         validate(document)
 
+        // 转入账户指向不存在账户的转移直接跳过：一条坏数据不该让整次导入失败，
+        // 用户能导入其余全部账本才是更重要的结果
+        val accountIds = document.accounts.mapTo(HashSet()) { it.id }
+        val transactions = document.transactions.filter { it.isUsable(accountIds) }
+
         val counts = BackupCounts(
             accounts = document.accounts.size,
             categories = document.categories.size,
-            transactions = document.transactions.size,
+            transactions = transactions.size,
             scheduleRules = document.scheduleRules.size,
             budgets = document.budgets.size,
         )
 
         database.withTransaction {
             deleteEverything()
-            insertEverything(document)
+            insertEverything(document, transactions)
         }
         counts
     }
@@ -214,7 +219,7 @@ class BackupManager(
             if (transaction.amountCents < 0) {
                 throw BackupException("备份内容不一致：存在负数金额的交易")
             }
-            if (transaction.type != "EXPENSE" && transaction.type != "INCOME") {
+            if (transaction.type !in TRANSACTION_TYPES) {
                 throw BackupException("备份内容不一致：交易收支类型异常（${transaction.type}）")
             }
         }
@@ -243,7 +248,10 @@ class BackupManager(
         database.categoryDao().deleteAll()
     }
 
-    private suspend fun insertEverything(document: BackupDocument) {
+    private suspend fun insertEverything(
+        document: BackupDocument,
+        transactions: List<BackupTransaction>,
+    ) {
         val accountDao = database.accountDao()
         val categoryDao = database.categoryDao()
         val transactionDao = database.transactionDao()
@@ -252,7 +260,7 @@ class BackupManager(
         // 保留原始 id：交易、规则的引用关系靠它维持
         document.accounts.forEach { accountDao.insert(it.toEntity()) }
         document.categories.forEach { categoryDao.insert(it.toEntity()) }
-        document.transactions.forEach { transactionDao.insert(it.toEntity()) }
+        transactions.forEach { transactionDao.insert(it.toEntity()) }
         document.scheduleRules.forEach { ruleDao.insert(it.toEntity()) }
         document.budgets.forEach { database.budgetDao().insert(it.toEntity()) }
     }
@@ -268,5 +276,21 @@ class BackupManager(
     private companion object {
         const val PAGE_SIZE = 500
         const val WRITE_BUFFER = 64 * 1024
+
+        /** 备份里允许的交易类型。 */
+        val TRANSACTION_TYPES = setOf("EXPENSE", "INCOME", "TRANSFER")
     }
+}
+
+/**
+ * 这笔交易能否写进数据库。
+ *
+ * 转移必须有转入账户，且转入账户得真实存在、不能等于转出账户 —— 否则余额聚合会把钱算到
+ * 一个不存在的账户上，表现为「总资产凭空少了」。这类坏数据只可能来自手工改动过的备份，
+ * 跳过它比让整次导入失败更合理。
+ */
+private fun BackupTransaction.isUsable(accountIds: Set<Long>): Boolean {
+    if (type != "TRANSFER") return true
+    val target = transferAccountId ?: return false
+    return target in accountIds && target != accountId
 }

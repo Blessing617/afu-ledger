@@ -152,6 +152,75 @@ class BackupManagerTest {
     }
 
     @Test
+    fun transferSurvivesExportImport() = runBlocking {
+        // 两个账户 + 一笔转移：导入后必须仍是一笔转移（不是被拆成两笔收支），两端余额一致
+        db.accountDao().insert(
+            AccountEntity(
+                id = 1,
+                name = "工资卡",
+                type = "BANK",
+                initialBalanceCents = 4_100_000,
+                colorArgb = 0,
+                iconKey = "credit_card",
+                createdAt = 1_000,
+            ),
+        )
+        db.accountDao().insert(
+            AccountEntity(
+                id = 2,
+                name = "消费卡",
+                type = "BANK",
+                initialBalanceCents = 9_522,
+                colorArgb = 0,
+                iconKey = "credit_card",
+                sortOrder = 1,
+                createdAt = 1_000,
+            ),
+        )
+        db.categoryDao().insert(
+            CategoryEntity(
+                id = 9,
+                name = "转账",
+                type = "TRANSFER",
+                iconKey = "swap_horiz",
+                colorArgb = 0,
+                sortOrder = 999,
+                preset = true,
+            ),
+        )
+        db.transactionDao().insert(
+            TransactionEntity(
+                id = 100,
+                accountId = 1,
+                categoryId = 9,
+                type = "TRANSFER",
+                amountCents = 556_521,
+                occurredAt = 2_000,
+                createdAt = 2_000,
+                updatedAt = 2_000,
+                transferAccountId = 2,
+            ),
+        )
+
+        val exported = ByteArrayOutputStream()
+        manager.exportTo(exported, appVersionName = "1.4.0", appVersionCode = 20)
+
+        val imported = manager.importFrom(
+            exported.toString(Charsets.UTF_8.name()).byteInputStream(Charsets.UTF_8),
+        )
+        assertEquals(1, imported.transactions)
+
+        val restored = db.transactionDao().findById(100)
+        assertNotNull(restored)
+        assertEquals("TRANSFER", restored!!.type)
+        assertEquals(2L, restored.transferAccountId)
+
+        val balances = db.accountDao().observeBalances().first().associate { it.id to it.balanceCents }
+        assertEquals(3_543_479L, balances[1])
+        assertEquals(566_043L, balances[2])
+    }
+
+    @Test
     fun importAcceptsV1BackupWithoutBudgets() = runBlocking {
         seedSampleData(transactionCount = 1)
         val v1 = """

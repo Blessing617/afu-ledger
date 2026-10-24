@@ -211,6 +211,9 @@ class HomeViewModel(
                 categoryIcon = category?.iconKey ?: "more_horiz",
                 categoryColorArgb = category?.colorArgb ?: 0xFF90A4AE,
                 accountName = accountById[transaction.accountId]?.name ?: "已删除账户",
+                transferToAccountName = transaction.transferAccountId?.let { id ->
+                    accountById[id]?.name ?: "已删除账户"
+                },
             )
         }
 
@@ -244,8 +247,13 @@ class HomeViewModel(
             .groupBy { DateFormatter.dayKey(it.occurredAt) }
             .toSortedMap(compareByDescending { it })
             .map { (dayKey, dayTransactions) ->
+                // 资产转移不计入当日结余：钱没花掉，只是换了个账户
                 val net = dayTransactions.fold(0L) { acc, t ->
-                    acc + if (t.type == TransType.INCOME) t.amount.cents else -t.amount.cents
+                    acc + when (t.type) {
+                        TransType.INCOME -> t.amount.cents
+                        TransType.EXPENSE -> -t.amount.cents
+                        TransType.TRANSFER -> 0L
+                    }
                 }
                 TransactionGroup(
                     dayKey = dayKey,
@@ -291,10 +299,11 @@ class HomeViewModel(
         monthTransactions.forEach { transaction ->
             val day = Instant.ofEpochMilli(transaction.occurredAt).atZone(zone).dayOfMonth
             val current = result[day] ?: DaySummary()
-            result[day] = if (transaction.type == TransType.INCOME) {
-                current.copy(incomeCents = current.incomeCents + transaction.amount.cents)
-            } else {
-                current.copy(expenseCents = current.expenseCents + transaction.amount.cents)
+            result[day] = when (transaction.type) {
+                TransType.INCOME -> current.copy(incomeCents = current.incomeCents + transaction.amount.cents)
+                TransType.EXPENSE -> current.copy(expenseCents = current.expenseCents + transaction.amount.cents)
+                // 转移既不进也不出，日历上的收支格子不该有它
+                TransType.TRANSFER -> current
             }
         }
         return result

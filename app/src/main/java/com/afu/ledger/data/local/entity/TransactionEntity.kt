@@ -45,4 +45,11 @@ data class TransactionEntity(
     @ColumnInfo(defaultValue = "MANUAL") val sourceType: String = "MANUAL",
     val scheduleRuleId: Long? = null,
     @ColumnInfo(defaultValue = "0") val backfilled: Boolean = false,
+    /**
+     * 资产转移的转入账户；非转移交易为 NULL。
+     *
+     * 不加外键：账户被删除时，转移由账户删除的事务（它本来就会级联删掉名下交易）一并清理，
+     * 再叠一个外键只会让「删账户」的路径多一种失败方式。
+     */
+    val transferAccountId: Long? = null,
 )

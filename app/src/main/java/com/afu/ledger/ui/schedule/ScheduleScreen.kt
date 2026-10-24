@@ -1,6 +1,6 @@
 package com.afu.ledger.ui.schedule
 
-import android.view.WindowManager
+
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.Animatable
@@ -56,7 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.SideEffect
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -72,7 +72,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
+
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -81,7 +81,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
+
 import androidx.core.view.WindowCompat
 import com.afu.ledger.domain.model.Account
 import com.afu.ledger.domain.model.Category
@@ -94,6 +94,7 @@ import com.afu.ledger.domain.schedule.ScheduleRule
 import com.afu.ledger.schedule.PendingOccurrenceStore
 import com.afu.ledger.ui.component.AfuButton
 import com.afu.ledger.ui.component.AfuMotion
+import com.afu.ledger.ui.component.DialogScrimPolicy
 import com.afu.ledger.ui.component.ModalScrim
 import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.component.IconChoiceRow
@@ -571,6 +572,9 @@ private fun ScheduleEditorPage(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
         ) {
+            // 遮罩只有一层：关掉 Dialog 自带的系统 dim（与预算面板同一套做法）
+            DialogScrimPolicy(hideKeyboardOnOpen = true)
+
             val style = LocalThemeStyle.current
             val dismissThresholdPx = with(LocalDensity.current) { 120.dp.toPx() }
             var dragOffset by remember { mutableFloatStateOf(0f) }
@@ -584,17 +588,6 @@ private fun ScheduleEditorPage(
                     .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
                     .background(ModalScrim),
             )
-
-            val view = LocalView.current
-            SideEffect {
-                runCatching {
-                    val window = (view.parent as? DialogWindowProvider)?.window
-                    window?.setDimAmount(0f)
-                    // 打开编辑器时不要自动弹系统键盘：金额输入框会抢到窗口焦点，
-                    // 键盘一上来就挡住半屏，把「分区浏览」变成了「先关键盘」。
-                    window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
-                }
-            }
 
             Column(
                 modifier = Modifier

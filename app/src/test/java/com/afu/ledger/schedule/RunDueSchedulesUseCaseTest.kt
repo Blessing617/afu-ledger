@@ -246,6 +246,14 @@ private class FakeAccountDao(private val items: MutableList<AccountEntity>) : Ac
         items.removeAll { it.id == id }
     }
 
+    override suspend fun deleteIncomingTransfers(id: Long) {
+        deleteById(id)
+    }
+
+    override suspend fun deleteWithTransfers(id: Long) {
+        deleteById(id)
+    }
+
     override suspend fun countTransactions(id: Long): Int = 0
 
     override suspend fun nextSortOrder(): Int = items.size
@@ -296,6 +304,9 @@ private class FakeCategoryDao(private val items: MutableList<CategoryEntity>) : 
         flowOf(items.filter { it.type == type })
 
     override suspend fun findById(id: Long): CategoryEntity? = items.firstOrNull { it.id == id }
+
+    override suspend fun findTransferCategory(): CategoryEntity? =
+        items.firstOrNull { it.type == "TRANSFER" }
 
     override suspend fun count(): Int = items.size
 
