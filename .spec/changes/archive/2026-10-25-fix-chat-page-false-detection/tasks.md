@@ -37,4 +37,4 @@
 - [x] 6.2 真机回归：微信会话列表 / 微信支付会话 / 聊天页不再弹窗；账单详情页仍能命中 — 验证：日志 `15:07:01 不是支付页面`、`15:06:31 识别命中 · ¥27.00`
 - [x] 6.3 打 release 包、覆盖安装、`dumpsys` 确认版本 — 验证：versionCode 13 / versionName 1.3.1
 - [x] 6.4 README 补充「聊天页 / 会话列表不识别」「金额最大字」「丢小数点」与通知文案 — 验证：通读
-- [ ] 6.5 推 GitHub 并发 release — 验证：release 页面可见 APK
+- [x] 6.5 推 GitHub 并发 release — 验证：https://github.com/Blessing617/afu-ledger/releases/tag/v1.3.1
