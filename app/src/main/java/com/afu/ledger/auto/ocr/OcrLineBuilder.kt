@@ -51,7 +51,13 @@ object OcrLineBuilder {
             if (text.isEmpty()) {
                 null
             } else {
-                PageText(text = text, top = sorted.first().top, left = sorted.first().left)
+                PageText(
+                    text = text,
+                    top = sorted.first().top,
+                    left = sorted.first().left,
+                    // 取这一行里最高的那块：金额这种大字号行本来就该是行内最高的
+                    height = sorted.maxOf { it.height }.toInt(),
+                )
             }
         }
     }

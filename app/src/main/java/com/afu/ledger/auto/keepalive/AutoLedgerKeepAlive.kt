@@ -22,6 +22,9 @@ object AutoLedgerKeepAlive {
 
     const val NOTIFICATION_ID: Int = 3001
 
+    /** 常驻通知的**唯一**一句文案：标题用它，不再挂副标题。 */
+    const val NOTIFICATION_TITLE: String = "阿福自动记账运行中"
+
     private const val CHANNEL_ID = "auto_ledger_keepalive"
 
     /** 超过这个时长没有任何受支持应用的事件，就认为「疑似被冻结」。 */
@@ -57,7 +60,8 @@ object AutoLedgerKeepAlive {
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
+        // 不做「已存在就返回」的短路：渠道名与描述改过之后，靠重复创建才能同步到系统设置里
+        // （重复创建是幂等的，用户手动改过的渠道参数会保留）。
 
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -89,8 +93,8 @@ object AutoLedgerKeepAlive {
 
         return builder
             .setSmallIcon(R.drawable.ic_stat_auto_ledger)
-            .setContentTitle("自动记账运行中")
-            .setContentText("识别微信 / 支付宝支付页，数据全部留在本机")
+            // 常驻通知只留一句：用户只需要知道「它在跑」，不需要在通知栏读产品说明
+            .setContentTitle(NOTIFICATION_TITLE)
             .setContentIntent(contentIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

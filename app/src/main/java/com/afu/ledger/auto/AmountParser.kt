@@ -69,6 +69,14 @@ object AmountParser {
 
         /** 同一优先级上出现多个互不相同的金额。 */
         data class Ambiguous(val amounts: List<Money>) : Result
+
+        /**
+         * 只找到「没有小数点的整数金额」。
+         *
+         * 交易金额在微信 / 支付宝上一律是两位小数，OCR 丢掉小数点会把 `27.00` 读成 `2700`，
+         * 直接放大 100 倍。调用方拿到它必须放弃识别，而不是照单入账。
+         */
+        data class MissingDecimal(val amounts: List<Money>) : Result
     }
 
     /**
@@ -76,10 +84,12 @@ object AmountParser {
      *
      * @param lines 整页文本行（视觉行拼合后的），按页面上到下排序
      * @param allowBareAmount 是否接受不带货币符号的裸数字（仅账单详情页开启）
+     * @param requireDecimal 是否要求金额带小数点（支付结果页开启：防 OCR 丢小数点放大 100 倍）
      */
     fun parseTransaction(
         lines: List<String>,
         allowBareAmount: Boolean = false,
+        requireDecimal: Boolean = false,
     ): Result {
         val candidates = mutableListOf<Candidate>()
 
@@ -135,8 +145,25 @@ object AmountParser {
 
         if (candidates.isEmpty()) return Result.None
 
-        val best = candidates.maxOf { it.priority }
-        val group = candidates.filter { it.priority == best }
+        // 结果页要求金额带小数点：OCR 丢小数点会把 27.00 读成 2700。
+        // 同页既有整数又有小数时，只信带小数的那个（真机：聊天里的转账提示同时被读成两种形态）。
+        val pool = if (requireDecimal) {
+            val withDecimal = candidates.filter { it.line.contains('.') }
+            if (withDecimal.isEmpty()) {
+                val intOnly = candidates.filterNot { it.line.contains('.') }
+                if (intOnly.isNotEmpty()) {
+                    return Result.MissingDecimal(intOnly.map { it.amount }.distinct())
+                }
+                candidates
+            } else {
+                withDecimal
+            }
+        } else {
+            candidates
+        }
+
+        val best = pool.maxOf { it.priority }
+        val group = pool.filter { it.priority == best }
         val distinct = group.map { it.amount }.distinct()
 
         return when {

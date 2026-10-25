@@ -259,6 +259,66 @@ object PaymentPageRules {
     )
 
     /**
+     * 聊天**输入栏**证据。命中级即认定是聊天页，直接跳过识别。
+     *
+     * 匹配前会去掉全部空白（见 [containsChatEvidence]）：OCR 对「按住 说话」的空格很不稳定，
+     * 真机读成过「按住说话」和「按住 说 话」两种，按原样比较会漏。
+     */
+    val chatInputBarKeywords: List<String> = listOf(
+        "按住说话",
+        "按住讲话",
+        "语音输入",
+        "发送消息",
+        "聊天信息",
+        "文件传输助手",
+    )
+
+    /**
+     * 聊天**卡片 / 会话行为**证据。
+     *
+     * 微信聊天里的转账卡片会写「转账给 xxx」，收款/撤回/正在输入这类文案更是只有聊天页才有。
+     *
+     * **不要把「微信红包」「微信转账」放进这里**：微信红包领取页自己就写着「微信红包」，
+     * 放进来会把真实的红包账单页误杀（真机回归用例当场就挂）。
+     *
+     * 这类词在真正的转账账单详情页里也可能出现（「转账给」），所以判定时留了例外：
+     * 页面同时命中 ≥ [MIN_BILL_FIELD_HITS] 个账单强字段时不算聊天页。
+     */
+    val chatCardKeywords: List<String> = listOf(
+        "转账给",
+        "消息已发出",
+        "对方正在输入",
+        "撤回了一条消息",
+        "拍一拍",
+        "[动画表情]",
+        "语音通话",
+        "视频通话",
+    )
+
+    /**
+     * 微信公众号会话页的底部菜单。
+     *
+     * 「微信支付」这个服务号会把自己的消费记录按时间堆在会话里，每条都是**大字金额**+「账单详情」，
+     * 长得和支付结果页几乎一样（真机就是这样把 27.00 读成 2700 弹了一张卡片）。
+     * 唯一稳定的区别是它底部挂着公众号的自定义菜单：「我的账单」「支付服务」「优惠」。
+     * 支付结果页没有这组菜单。
+     */
+    val wechatPayConversationKeywords: List<String> = listOf(
+        "我的账单",
+        "支付服务",
+    )
+
+    /** 去掉全部空白：OCR 的空格位置不可靠，比较前统一抹平。 */
+    fun normalizeForMatch(text: String): String = text.filterNot { it.isWhitespace() }
+
+    /** 页面里是否有聊天 / 会话页证据。 */
+    fun containsChatEvidence(pageText: String): Boolean {
+        val normalized = normalizeForMatch(pageText)
+        return chatInputBarKeywords.any { normalized.contains(normalizeForMatch(it)) } ||
+            chatCardKeywords.any { normalized.contains(normalizeForMatch(it)) }
+    }
+
+    /**
      * 一页里出现多少行「日期 + 时间」就认定这是列表页。
      *
      * 真实微信账单列表每一条交易都带「10月18日 20:10」这样的时间；
@@ -270,6 +330,18 @@ object PaymentPageRules {
     val timestampLinePattern: Regex = Regex(
         """(\d{1,2}月\d{1,2}日|\d{4}年\d{1,2}月\d{1,2}日|\d{1,4}[-/]\d{1,2}[-/]\d{1,2})""",
     )
+
+    /**
+     * 只有时分的时间，如 `14:58`。
+     *
+     * 微信**会话列表**每一行右侧都是这种时间，而且没有日期 —— 上面那条「日期+时间」判据抓不到它，
+     * 于是会话列表被当成「支付结果页」放行（真机：会话列表里「微信支付 · 已支付¥27.00」那一行
+     * 提供状态词与金额，弹了一张卡片）。
+     */
+    val clockOnlyPattern: Regex = Regex("""(?:^|[^\d:])\d{1,2}:\d{2}(?:[^\d:]|$)""")
+
+    /** 一页里出现多少行纯时分时间就认定是会话 / 列表页。 */
+    const val CLOCK_LINES_MIN = 3
 
     /**
      * 交易单号字段的标签。

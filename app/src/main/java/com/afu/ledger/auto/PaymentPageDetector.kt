@@ -46,6 +46,23 @@ class PaymentPageDetector(
             return DetectionResult.Missed(MissReason.EXCLUDED_KEYWORD)
         }
 
+        // ①.5 **聊天 / 会话页一级排除**（必须排在结果页判定之前）。
+        //
+        // 真机事故：打开与好友的聊天界面，聊天里的转账提示（27 元）被当成一笔交易弹出确认卡片，
+        // 金额还被 OCR 读成 2700；联系人昵称被当成商户名。原因是聊天里的转账 / 收款卡片
+        // 自带「转账」「已收款」「已存入零钱」，这些正是转账结果页的状态词，
+        // 而原来只有「结果页」内部一道聊天检查，靠 OCR 读出输入栏的「按住 说话」——
+        // 截图没读到它就直接穿过去了。
+        //
+        // 例外：真正的转账账单详情页也会出现「转账给」。所以命中聊天卡片类词时再看强字段，
+        // 够 [MIN_BILL_FIELD_HITS] 个就认为它是账单页，继续往下走。
+        if (PaymentPageRules.containsChatEvidence(pageText)) {
+            val strongFieldHits = PaymentPageRules.billStrongFields.count { fields.hasLabel(it) }
+            if (strongFieldHits < PaymentPageRules.MIN_BILL_FIELD_HITS) {
+                return DetectionResult.Missed(MissReason.CHAT_PAGE)
+            }
+        }
+
         // ② 排除：列表页。词表 + 「多行日期时间」双判据。
         if (isListPage(lines, pageText)) {
             return DetectionResult.Missed(MissReason.MAIN_SCREEN)
@@ -75,16 +92,22 @@ class PaymentPageDetector(
         val isResultPage = isPaymentResultPage(fields, pageText, lines, tradeNo)
 
         // ⑤ 正向准入：不是结果页时，页面必须自己证明它是账单详情页
-        if (!isResultPage && !isBillDetailPage(fields, pageText)) {
+        if (!isResultPage && !isBillDetailPage(fields, lines)) {
             return DetectionResult.Missed(MissReason.NOT_PAYMENT_PAGE)
         }
 
-        // ⑤ 金额与方向
-        val amountResult = AmountParser.parseTransaction(lines, allowBareAmount = true)
+        // ⑤ 金额与方向。结果页额外要求金额带小数点：OCR 丢小数点会把 27.00 读成 2700。
+        val amountResult = AmountParser.parseTransaction(
+            lines,
+            allowBareAmount = true,
+            requireDecimal = isResultPage,
+        )
         val (amount, amountDirection, amountLine) = when (amountResult) {
             AmountParser.Result.None -> return DetectionResult.Missed(MissReason.NO_AMOUNT)
             is AmountParser.Result.Ambiguous ->
                 return DetectionResult.Missed(MissReason.AMBIGUOUS_AMOUNT)
+            is AmountParser.Result.MissingDecimal ->
+                return DetectionResult.Missed(MissReason.AMOUNT_LOST_DECIMAL)
             is AmountParser.Result.Ok -> Triple(
                 amountResult.amount,
                 amountResult.direction,
@@ -92,6 +115,19 @@ class PaymentPageDetector(
             )
         }
         if (!amount.isPositive()) return DetectionResult.Missed(MissReason.ZERO_AMOUNT)
+
+        // ⑤.5 结果页的结构判据：**金额必须是全页字号的峰值**。
+        //
+        // 这条是为真机事故补的：用户在微信里付了 27.00（正常弹窗入账），随后点开与好友的聊天界面，
+        // 又弹出一张卡片，金额还是 2700。词表拦不住它——聊天正文里既没有「转账」也没有「已收款」，
+        // 页面又缺少账单字段，于是被当成「支付结果页」放行了。
+        //
+        // 但支付结果页有一个聊天页永远不具备的特征：金额是全页最大的字
+        // （微信支付成功页的金额约是正文的两三倍）。OCR 给得出每行的高度，就用它做判据。
+        // 高度信息缺失时（节点通道、纯文本测试）跳过这条，不用「猜不到」去否掉识别。
+        if (isResultPage && !amountIsMostProminent(snapshot, amountLine)) {
+            return DetectionResult.Missed(MissReason.AMOUNT_NOT_PROMINENT)
+        }
 
         // 方向：金额自身给不出时，用页面状态词兜底；都判不出就放弃，绝不猜
         val direction = amountDirection ?: statusDirection(pageText)
@@ -116,9 +152,25 @@ class PaymentPageDetector(
                 occurredAtSource = occurredAtSource,
                 capturedAt = System.currentTimeMillis(),
                 amountLine = amountLine,
+                pageHeadline = headlineOf(lines),
             ),
         )
     }
+
+    /**
+     * 页面文本摘要：前 3 行、每行最多 24 字、总长不超过 96 字。
+     *
+     * 只给日志排查用。误识别（尤其「聊天页为什么被判成支付页」）没有这份摘要就只能靠猜，
+     * 有它就能直接看到是哪个词凑出的证据。
+     */
+    private fun headlineOf(lines: List<String>): String =
+        lines.asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .take(HEADLINE_LINES)
+            .map { it.take(HEADLINE_CHARS) }
+            .joinToString(" | ")
+            .take(HEADLINE_TOTAL)
 
     /**
      * 列表页判定。
@@ -132,21 +184,38 @@ class PaymentPageDetector(
         if (keywordHits >= PaymentPageRules.MIN_LIST_PAGE_HITS) return true
 
         val timestampLines = lines.count { PaymentPageRules.timestampLinePattern.containsMatchIn(it) }
-        return timestampLines >= PaymentPageRules.LIST_PAGE_MIN_TIMESTAMP_LINES
+        if (timestampLines >= PaymentPageRules.LIST_PAGE_MIN_TIMESTAMP_LINES) return true
+
+        // 微信会话列表：每行右侧只有「14:58」这种时分，没有日期。
+        // 真机事故就是它被当成支付结果页放行的（会话列表里「微信支付 · 已支付¥27.00」那一行）。
+        val clockLines = lines.count { PaymentPageRules.clockOnlyPattern.containsMatchIn(it) }
+        return clockLines >= PaymentPageRules.CLOCK_LINES_MIN
     }
 
     /**
      * 页面是不是账单详情页。
      *
      * 两条路径任一成立即可：
-     * - 标题命中「账单详情」这类词
+     * - 标题（**只扫页面前几行**）命中「账单详情」这类词
      * - 专属字段（交易单号 / 收单机构 / 商户全称…）命中 ≥ [PaymentPageRules.MIN_BILL_FIELD_HITS] 个
+     *
+     * 标题只在页首匹配：真机踩过「微信支付公众号会话里每条记录都带一个『账单详情 >』链接」，
+     * 按整页包含来判，整个会话页都会被当成账单详情页。
      *
      * 只靠「交易 / 订单 / 金额」这类通用词凑数**不放行** ——
      * 那正是「支付宝我的页被误判」的根因：那个页面同时出现「账单」「交易」两个词。
      */
-    private fun isBillDetailPage(fields: BillFieldParser, pageText: String): Boolean {
-        if (PaymentPageRules.billTitleKeywords.any { pageText.contains(it) }) return true
+    private fun isBillDetailPage(fields: BillFieldParser, lines: List<String>): Boolean {
+        // 标题必须「自己是一行标题」：以关键词开头，且不带「>」这类跳转标记。
+        // 微信支付公众号会话里每条记录下面都挂一个「账单详情 >」链接，
+        // 按「页面上出现过这个词」来判，整个会话页都会被当成账单页。
+        val titled = lines.take(BILL_TITLE_SCAN_LINES).any { line ->
+            val trimmed = line.trim()
+            PaymentPageRules.billTitleKeywords.any { keyword ->
+                trimmed.startsWith(keyword) && !trimmed.contains('>') && !trimmed.contains('›')
+            }
+        }
+        if (titled) return true
         val fieldHits = PaymentPageRules.billStrongFields.count { fields.hasLabel(it) }
         return fieldHits >= PaymentPageRules.MIN_BILL_FIELD_HITS
     }
@@ -174,6 +243,16 @@ class PaymentPageDetector(
         if (lines.size > PaymentPageRules.MAX_RESULT_PAGE_LINES) return false
         if (PaymentPageRules.chatOrFeedKeywords.any { pageText.contains(it) }) return false
 
+        // 微信支付公众号会话页：底部挂着「我的账单 / 支付服务」菜单，
+        // 里面的消费记录卡片也是大字金额，长得像结果页。菜单是它独有的、稳定的区别。
+        val normalizedPage = PaymentPageRules.normalizeForMatch(pageText)
+        if (PaymentPageRules.wechatPayConversationKeywords.any {
+                normalizedPage.contains(PaymentPageRules.normalizeForMatch(it))
+            }
+        ) {
+            return false
+        }
+
         // 商户支付成功页：状态词本身就是强证据
         if (PaymentPageRules.resultKeywords.any { pageText.contains(it) }) return true
 
@@ -198,7 +277,43 @@ class PaymentPageDetector(
         return null
     }
 
+    /**
+     * 金额行是不是页面上字号的峰值。
+     *
+     * 判据：金额行的高度 ≥ 其它行高度中位数的 [PROMINENT_RATIO] 倍。
+     * 支付结果页的金额字号远大于正文，聊天正文里的数字则与正文同高。
+     *
+     * 返回 `true` 表示通过（或无法判定）：**只有明确「不够大」才拒绝**，
+     * 避免因为 OCR 行高抖动把正常账单页挡掉。
+     */
+    private fun amountIsMostProminent(snapshot: PageSnapshot, amountLine: String): Boolean {
+        val sized = snapshot.items.filter { it.height > 0 }
+        if (sized.size < 3) return true // 高度信息不足，不做判断
+        val amountItem = sized.firstOrNull { item ->
+            val text = item.text.trim()
+            text.isNotEmpty() && (text.contains(amountLine.trim()) || amountLine.trim().contains(text))
+        } ?: return true
+        val others = sized.filterNot { it === amountItem }.map { it.height }
+        if (others.isEmpty()) return true
+        // 用「其它行里的最大字号」而不是中位数：会话列表里状态栏那种小字会把中位数拉低，
+        // 于是列表正文的金额也能通过 1.5 倍中位数。支付结果页的金额连**最大**的那行都要压过去。
+        val tallestOther = others.max()
+        return amountItem.height.toFloat() >= tallestOther * PROMINENT_RATIO
+    }
+
     private fun isSupportedPackage(packageName: String): Boolean =
         packageName in PaymentPageRules.supportedPackages ||
             (allowDebugRules && packageName == debugPackageName)
+
+    private companion object {
+        const val HEADLINE_LINES = 3
+        const val HEADLINE_CHARS = 24
+        const val HEADLINE_TOTAL = 96
+
+        /** 金额行相对**其它行最大字高**的倍数下限。支付页通常是 2 倍以上，这里留足余量。 */
+        const val PROMINENT_RATIO = 1.2f
+
+        /** 账单标题只在页首这几行内匹配：标题本来就在顶部，靠后的「账单详情」多半是链接。 */
+        const val BILL_TITLE_SCAN_LINES = 5
+    }
 }

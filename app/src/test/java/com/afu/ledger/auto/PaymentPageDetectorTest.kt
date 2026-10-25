@@ -158,7 +158,7 @@ class PaymentPageDetectorTest {
     @Test
     fun `聊天列表不是支付页`() {
         assertEquals(
-            MissReason.NOT_PAYMENT_PAGE,
+            MissReason.CHAT_PAGE,
             miss(
                 releaseDetector.detect(
                     PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, listOf("微信", "文件传输助手", "今天 12:30")),
@@ -311,7 +311,7 @@ class PaymentPageDetectorTest {
             "按住 说话", "表情", "发送",
         )
         assertEquals(
-            MissReason.NOT_PAYMENT_PAGE,
+            MissReason.CHAT_PAGE,
             miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
         )
     }
@@ -431,7 +431,7 @@ class PaymentPageDetectorTest {
             "按住 说话", "表情",
         )
         assertEquals(
-            MissReason.NOT_PAYMENT_PAGE,
+            MissReason.CHAT_PAGE,
             miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
         )
     }
@@ -607,5 +607,231 @@ class PaymentPageDetectorTest {
             ),
         )
         assertEquals(Money(2550), draft.amount)
+    }
+
+    // ---------- 聊天页误弹（真机事故：打开好友对话弹出金额不对的卡片） ----------
+
+    @Test
+    fun `聊天页里的转账卡片不识别`() {
+        // 真机：与好友的对话里有一条 27 元转账提示，被当成支付结果页弹了出来，
+        // 联系人昵称还成了商户名。现在聊天证据是一级排除，命中即放弃。
+        val texts = listOf(
+            "好友A",
+            "[转账] 微信转账",
+            "¥27.00",
+            "已收款",
+            "转账给 好友A",
+        )
+        assertEquals(
+            MissReason.CHAT_PAGE,
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `聊天页输入栏被 OCR 读错空格也拦得住`() {
+        val variants = listOf(
+            "按住 说话",
+            "按住说话",
+            "按住 说 话",
+        )
+        variants.forEach { bar ->
+            val texts = listOf("某好友-好友B", "支付成功", "¥9.00", bar)
+            assertEquals(
+                "输入栏文案「$bar」应判定为聊天页",
+                MissReason.CHAT_PAGE,
+                miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
+            )
+        }
+    }
+
+    @Test
+    fun `聊天页里的红包消息不识别`() {
+        val texts = listOf("红包", "微信红包", "[动画表情]", "恭喜发财", "¥8.88", "已存入零钱")
+        assertEquals(
+            MissReason.CHAT_PAGE,
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `转账账单详情页不被聊天证据误杀`() {
+        // 「转账给」在真正的转账账单详情页里也会出现，但那里有 ≥2 个强字段，应继续识别
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.WECHAT_PACKAGE,
+                    listOf(
+                        "转账详情",
+                        "转账给 好友A",
+                        "¥27.00",
+                        "当前状态", "已收款",
+                        "转账单号", "10000500012026102501234567890",
+                        "转账时间", "2026年10月25日 14:45:02",
+                    ),
+                ),
+            ),
+        )
+        assertEquals(Money(2700), draft.amount)
+        assertEquals(PaymentPageType.BILL_DETAIL, draft.pageType)
+    }
+
+    // ---------- OCR 丢小数点（27.00 → 2700） ----------
+
+    @Test
+    fun `结果页金额没有小数点时放弃识别`() {
+        // OCR 把 ¥27.00 读成 ¥2700：放大 100 倍的经典形态，宁可漏记也不能记错
+        val texts = listOf("支付成功", "¥2700", "完成")
+        assertEquals(
+            MissReason.AMOUNT_LOST_DECIMAL,
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `同页有带小数金额时优先它`() {
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.WECHAT_PACKAGE,
+                    listOf("支付成功", "¥2700", "¥27.00", "完成"),
+                ),
+            ),
+        )
+        assertEquals(Money(2700), draft.amount)
+    }
+
+    @Test
+    fun `正常结果页金额带两位小数不受影响`() {
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.WECHAT_PACKAGE,
+                    listOf("支付成功", "¥25.50", "完成"),
+                ),
+            ),
+        )
+        assertEquals(Money(2550), draft.amount)
+    }
+
+    @Test
+    fun `命中时留下页面摘要`() {
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.WECHAT_PACKAGE,
+                    listOf("账单详情", "支付成功", "¥25.50", "瑞幸咖啡"),
+                ),
+            ),
+        )
+        assertTrue("页面摘要不应为空", draft.pageHeadline.isNotBlank())
+        assertTrue("摘要不能超过 96 字", draft.pageHeadline.length <= 96)
+    }
+
+    // ---------- 字号判据（OCR 行高）：金额必须是全页最大的字 ----------
+
+    private fun snapshotWithHeights(vararg rows: Triple<String, Int, Int>): PageSnapshot =
+        PageSnapshot(
+            packageName = PaymentPageRules.WECHAT_PACKAGE,
+            items = rows.mapIndexed { index, (text, height, _) ->
+                PageText(text = text, top = 100 + index * 90, left = 80, height = height)
+            },
+        )
+
+    @Test
+    fun `金额与正文同字号时不当作支付结果页`() {
+        // 真机事故的形态：页面里出现了成功状态词与一个金额，但金额和正文一样大 ——
+        // 这是聊天正文（或截图里的文字），不是支付结果页的「大字金额」。
+        val snapshot = snapshotWithHeights(
+            Triple("支付成功", 30, 0),
+            Triple("刚才那笔 27.00 你帮我垫的", 30, 0),
+            Triple("¥27.00", 30, 0),
+            Triple("收到", 30, 0),
+        )
+        assertEquals(
+            MissReason.AMOUNT_NOT_PROMINENT,
+            miss(releaseDetector.detect(snapshot)),
+        )
+    }
+
+    @Test
+    fun `金额是最大字时正常当作结果页`() {
+        val snapshot = snapshotWithHeights(
+            Triple("支付成功", 30, 0),
+            Triple("¥25.50", 78, 0),
+            Triple("瑞幸咖啡", 30, 0),
+            Triple("完成", 30, 0),
+        )
+        val draft = hit(releaseDetector.detect(snapshot))
+        assertEquals(Money(2550), draft.amount)
+        assertEquals(PaymentPageType.PAYMENT_RESULT, draft.pageType)
+    }
+
+    // ---------- 微信支付公众号会话（真机：27.00 被读成 2700 的来源页面） ----------
+
+    @Test
+    fun `微信支付公众号会话里的消费记录不识别`() {
+        // 真机页面：会话里堆着多条消费记录，每条都是大字金额 +「账单详情」，
+        // 底部是公众号菜单「我的账单 / 支付服务 / 优惠」。
+        val texts = listOf(
+            "微信支付",
+            "13:41",
+            "某烧鸭面馆",
+            "使用零钱支付",
+            "¥27.00",
+            "账单详情",
+            "我的账单", "支付服务", "优惠",
+        )
+        assertEquals(
+            MissReason.NOT_PAYMENT_PAGE,
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `微信支付会话里多笔记录不识别`() {
+        val texts = listOf(
+            "微信支付", "13:41", "某烧鸭面馆", "使用零钱支付", "¥27.00",
+            "14:05", "某生活超市", "使用零钱支付", "¥9.00",
+        )
+        // 两个不同金额 → 歧义放弃；无论如何都不能弹窗
+        assertTrue(
+            "不应命中",
+            releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))
+                is DetectionResult.Missed,
+        )
+    }
+
+    @Test
+    fun `微信会话列表不弹窗`() {
+        // 真机：会话列表里「微信支付 · 已支付¥27.00」那一行提供状态词与金额，
+        // 整个列表页被当成支付结果页弹了卡片。列表页每行右侧只有「14:58」这种时分。
+        val texts = listOf(
+            "某好友-好友A", "15.10分我来", "14:58",
+            "公众号", "杭州电子科技大学", "14:45",
+            "微信支付", "已支付¥27.00", "14:05",
+            "某好友-好友B", "后面打得好", "12:19",
+        )
+        assertEquals(
+            MissReason.MAIN_SCREEN,
+            miss(releaseDetector.detect(PageSnapshot.ofTexts(PaymentPageRules.WECHAT_PACKAGE, texts))),
+        )
+    }
+
+    @Test
+    fun `账单详情页只有一行时间不受会话规则影响`() {
+        val draft = hit(
+            releaseDetector.detect(
+                PageSnapshot.ofTexts(
+                    PaymentPageRules.WECHAT_PACKAGE,
+                    listOf(
+                        "账单详情", "支付成功", "¥27.00", "某烧鸭面馆",
+                        "支付时间", "2026年10月25日 13:41:02",
+                        "交易单号", "4200001234202610251234567890",
+                    ),
+                ),
+            ),
+        )
+        assertEquals(Money(2700), draft.amount)
     }
 }

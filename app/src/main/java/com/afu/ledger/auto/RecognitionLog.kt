@@ -29,6 +29,8 @@ data class RecognitionEntry(
     val timeSource: String? = null,
     /** 本次使用的去重指纹。重复入账时，两条记录的指纹是否相同一眼可辨。 */
     val fingerprint: String? = null,
+    /** 命中时页面文本的摘要（前 3 行、每行 24 字）。排查误识别全靠它，不含整页内容。 */
+    val pageHeadline: String? = null,
 )
 
 /**
