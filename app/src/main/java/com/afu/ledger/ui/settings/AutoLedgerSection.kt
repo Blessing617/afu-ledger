@@ -550,5 +550,10 @@ private fun formatEntry(entry: RecognitionEntry): String {
     val fallbackTime = entry.timeSource?.takeIf { it == "FALLBACK" }?.let { " · 时间回退" }.orEmpty()
     // 指纹只给后 12 位：两条记录是不是同一笔，比对比全套指纹快得多
     val fingerprint = entry.fingerprint?.takeLast(12)?.let { " · #$it" }.orEmpty()
-    return "$time  ${entry.outcome}$amount$direction$merchant$fallbackTime$fingerprint"
+    // 页面摘要单独一行：误识别时「当时页面上写了什么」比什么都重要
+    val headline = entry.pageHeadline
+        ?.takeIf { it.isNotBlank() }
+        ?.let { "\n    ↳ $it" }
+        .orEmpty()
+    return "$time  ${entry.outcome}$amount$direction$merchant$fallbackTime$fingerprint$headline"
 }

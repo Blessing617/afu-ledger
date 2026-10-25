@@ -21,6 +21,7 @@ class AutoLedgerLogger(
         direction: String? = null,
         timeSource: String? = null,
         fingerprint: String? = null,
+        pageHeadline: String? = null,
     ) {
         if (!enabledProvider()) return
         recognitionLog.record(
@@ -34,11 +35,12 @@ class AutoLedgerLogger(
                 direction = direction,
                 timeSource = timeSource,
                 fingerprint = fingerprint,
+                pageHeadline = pageHeadline?.take(PAGE_HEADLINE_LIMIT),
             ),
         )
     }
 
-    /** 记一笔「识别到了什么」，把方向、时间来源与指纹一起写进去，便于复盘去重是否失效。 */
+    /** 记一笔「识别到了什么」，把方向、时间来源、指纹与页面摘要一起写进去。 */
     fun logDraft(draft: PaymentDraft, outcome: String, detail: String? = null) {
         log(
             packageName = draft.sourcePackage,
@@ -49,6 +51,7 @@ class AutoLedgerLogger(
             direction = draft.direction.name,
             timeSource = draft.occurredAtSource.name,
             fingerprint = draft.fingerprint(),
+            pageHeadline = draft.pageHeadline.takeIf { it.isNotBlank() },
         )
     }
 
@@ -59,5 +62,8 @@ class AutoLedgerLogger(
 
     companion object {
         const val DETAIL_LIMIT: Int = 200
+
+        /** 页面摘要上限：与 [PaymentPageDetector] 的截断规则保持一致（3 行 / 96 字）。 */
+        const val PAGE_HEADLINE_LIMIT: Int = 96
     }
 }

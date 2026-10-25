@@ -16,11 +16,15 @@ package com.afu.ledger.auto
  *
  * @param top 距屏幕顶部的像素；无视觉位置时为 [NO_POSITION]
  * @param left 距屏幕左侧的像素；无视觉位置时为 [NO_POSITION]
+ * @param height 该行文字的高度（像素）；未知时为 0。
+ *   OCR 通道能给出它，于是可以判断「这一行是不是页面上最大的字」——
+ *   支付结果页的金额永远是全页字号的峰值，聊天正文里的数字则与正文同高。
  */
 data class PageText(
     val text: String,
     val top: Int = NO_POSITION,
     val left: Int = NO_POSITION,
+    val height: Int = 0,
 ) {
     val hasPosition: Boolean get() = top != NO_POSITION && left != NO_POSITION
 

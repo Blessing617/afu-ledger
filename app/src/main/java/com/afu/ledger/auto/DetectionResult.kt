@@ -14,10 +14,13 @@ enum class MissReason(val label: String) {
     NOT_PAYMENT_PAGE("不是支付页面"),
     EXCLUDED_KEYWORD("命中排除词"),
     MAIN_SCREEN("疑似主界面/列表页"),
+    CHAT_PAGE("聊天页，已忽略"),
     NO_AMOUNT("金额解析失败"),
     AMBIGUOUS_AMOUNT("金额歧义"),
     ZERO_AMOUNT("金额为零"),
     UNKNOWN_DIRECTION("收支方向无法判定"),
+    AMOUNT_LOST_DECIMAL("金额疑似丢失小数点"),
+    AMOUNT_NOT_PROMINENT("金额不是页面上最大的字"),
 
     // 截图 OCR 通道专有
     OCR_UNAVAILABLE("OCR 不可用"),

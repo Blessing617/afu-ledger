@@ -47,6 +47,12 @@ data class PaymentDraft(
     val pageCategory: String? = null,
     /** 命中为交易金额的那一行原文，只用于日志排查（不落库）。 */
     val amountLine: String = "",
+    /**
+     * 命中时页面文本的摘要（前 3 行、每行最多 24 字），只用于识别日志排查，不落库。
+     *
+     * 有了它，「为什么这张卡片弹出来了」不用再靠猜：日志里能直接看到当时页面上是哪几行。
+     */
+    val pageHeadline: String = "",
     /** 来源应用的人话名字（微信 / 支付宝）。 */
     val source: String = PaymentPageRules.sourceLabel(sourcePackage),
 ) {

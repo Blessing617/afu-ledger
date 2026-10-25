@@ -98,7 +98,7 @@ class OcrSampleDetectorTest {
     @Test
     fun `聊天页带金额也不触发`() {
         assertEquals(
-            MissReason.NOT_PAYMENT_PAGE,
+            MissReason.CHAT_PAGE,
             miss(
                 releaseDetector.detect(
                     PageSnapshot.ofTexts(
