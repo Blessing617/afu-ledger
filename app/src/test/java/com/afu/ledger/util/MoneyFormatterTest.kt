@@ -42,4 +42,34 @@ class MoneyFormatterTest {
     fun `负数大额负号在最前`() {
         assertEquals("-¥123,456,789.00", MoneyFormatter.formatWithSymbol(Money(-12_345_678_900L)))
     }
+
+    // 明细页月历格子：曾经 1716550 分 → "+1k"，16345 分 → "-163"。
+    // 这两条把「完整显示」钉死成规格，回归时先跑它们。
+    @Test
+    fun `月历金额完整显示不缩写`() {
+        assertEquals("+17,165.50", MoneyFormatter.formatSignedYuan(1_716_550))
+        assertEquals("-2,555.00", MoneyFormatter.formatSignedYuan(-255_500))
+        assertEquals("+0.00", MoneyFormatter.formatSignedYuan(0))
+    }
+
+    @Test
+    fun `月历金额不舍去小数`() {
+        assertEquals("-163.45", MoneyFormatter.formatSignedYuan(-16_345))
+        assertEquals("-26.60", MoneyFormatter.formatSignedYuan(-2_660))
+        assertEquals("+0.01", MoneyFormatter.formatSignedYuan(1))
+    }
+
+    @Test
+    fun `月历金额九位整数位仍完整`() {
+        // 记账面板允许最多 9 位整数位，这里按上限验证不丢精度
+        assertEquals("+999,999,999.99", MoneyFormatter.formatSignedYuan(99_999_999_999L))
+    }
+
+    @Test
+    fun `月历金额处理 Long 边界`() {
+        assertEquals(
+            "-92,233,720,368,547,758.08",
+            MoneyFormatter.formatSignedYuan(Long.MIN_VALUE),
+        )
+    }
 }

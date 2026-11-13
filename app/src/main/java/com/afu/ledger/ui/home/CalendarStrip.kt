@@ -2,8 +2,8 @@ package com.afu.ledger.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,15 +21,26 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.afu.ledger.ui.component.AfuCard
 import com.afu.ledger.ui.theme.Spacing
+import com.afu.ledger.util.MoneyFormatter
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -42,8 +53,11 @@ data class DaySummary(
     val hasData: Boolean get() = expenseCents != 0L || incomeCents != 0L
 }
 
+/** 格子高度。两行文本（日期 + 完整金额）要放得下，极端大额折行时也不溢出。 */
+private val CellHeight = 52.dp
+
 /**
- * 首页月历。
+ * 首页与明细页共用的月历。
  *
  * 为什么要有它：原先首页只有「按日分组的长列表」，用户想知道「这个月哪天花了钱」
  * 只能一直滑。月历把这个问题变成一眼可见，并且点一下就能筛出那天的账。
@@ -124,7 +138,7 @@ fun CalendarStrip(
                     val cellIndex = row * 7 + column
                     val day = cellIndex - leadingBlanks + 1
                     if (day < 1 || day > yearMonth.lengthOfMonth()) {
-                        Spacer(modifier = Modifier.weight(1f).height(46.dp))
+                        Spacer(modifier = Modifier.weight(1f).height(CellHeight))
                     } else {
                         val date = yearMonth.atDay(day)
                         DayCell(
@@ -162,36 +176,112 @@ private fun DayCell(
         isSelected -> MaterialTheme.colorScheme.onPrimary
         else -> MaterialTheme.colorScheme.onSurface
     }
+    val hasAmount = summary != null && summary.hasData
+    val amountColor = when {
+        isSelected -> MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
+        summary != null && summary.netCents < 0 -> MaterialTheme.colorScheme.error.copy(alpha = 0.85f)
+        else -> Color(0xFF2E9E5B)
+    }
 
     Box(
         modifier = modifier
             .padding(1.dp)
-            .height(46.dp)
+            .height(CellHeight)
             .clip(RoundedCornerShape(12.dp))
             .background(background)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 1.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Text(
                 text = day.toString(),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = if (isToday || isSelected) FontWeight.SemiBold else FontWeight.Normal,
                 color = dayColor,
             )
-            if (summary != null && summary.hasData) {
-                Text(
-                    text = compactNet(summary.netCents),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = when {
-                        isSelected -> MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
-                        summary.netCents < 0 -> MaterialTheme.colorScheme.error.copy(alpha = 0.85f)
-                        else -> Color(0xFF2E9E5B)
-                    },
+            if (hasAmount) {
+                CalendarDayAmount(
+                    cents = summary.netCents,
+                    color = amountColor,
                 )
             }
         }
     }
+}
+
+/**
+ * 格子里的当日净额：**完整数字**，靠字号适配宽度。
+ *
+ * 这里以前是 `compactNet`：≥10000 元缩成「k」且用整数除法（17,165.50 → +1k），
+ * ≥100 元直接截断小数（163.45 → -163）。用户看到日历和明细对不上，以为记账丢了数据。
+ *
+ * 现在的规则与资产页一致：数字保持完整（符号 + 千分位 + 两位小数），
+ * 由布局负责放下它 —— 先实测能容纳的最大字号（10.5sp → 6sp），
+ * 只有缩到下限仍放不下（万亿级）才允许在两行内折行，绝不裁切、绝不省略号。
+ */
+@Composable
+private fun CalendarDayAmount(cents: Long, color: Color) {
+    val text = MoneyFormatter.formatSignedYuan(cents)
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val baseStyle = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp)
+    // 逗号后插入零宽空格：正常字号下没有任何视觉差异；
+    // 只有缩到最小字号仍放不下时，折行才会落在逗号后，而不是把数字切断成两截。
+    val breakable = remember(text) { text.replace(",", ",\u200B") }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val maxWidthPx = with(density) { maxWidth.roundToPx() }
+        val fontSize = remember(text, maxWidthPx, baseStyle) {
+            fittedFontSize(measurer, text, baseStyle, maxWidthPx)
+        }
+        Text(
+            text = breakable,
+            modifier = Modifier.fillMaxWidth(),
+            style = baseStyle,
+            fontSize = fontSize,
+            color = color,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            softWrap = true,
+            overflow = TextOverflow.Clip,
+        )
+    }
+}
+
+private const val AmountMaxFontSize = 10.5f
+private const val AmountMinFontSize = 6f
+
+/**
+ * 逐档实测能完整放下的字号。
+ *
+ * 档位只有十来档，直接量比估算字符宽度可靠：中文逗号、负号、冒号字宽都不同，
+ * 按字符数硬编码会在窄屏（360dp）上算错一档，正是这次要修的问题。
+ */
+private fun fittedFontSize(
+    measurer: TextMeasurer,
+    text: String,
+    style: TextStyle,
+    maxWidthPx: Int,
+): TextUnit {
+    if (maxWidthPx <= 0) return AmountMaxFontSize.sp
+    var size = AmountMaxFontSize
+    while (size > AmountMinFontSize) {
+        val layout = measurer.measure(
+            text = AnnotatedString(text),
+            style = style.copy(fontSize = size.sp),
+            maxLines = 1,
+            softWrap = false,
+            constraints = Constraints(maxWidth = maxWidthPx),
+        )
+        if (!layout.didOverflowWidth) return size.sp
+        size -= 0.5f
+    }
+    return AmountMinFontSize.sp
 }
 
 @Composable
@@ -208,30 +298,6 @@ private fun TodayChip(onClick: () -> Unit) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.primary,
         )
-    }
-}
-
-/**
- * 格子里的金额要短。
- *
- * 规则：100 元以内保留一位小数（-23.9），100 元以上取整（-139），
- * 一万元以上用 k（-17k）。格子只有半个指甲盖大，字符一多就被裁掉。
- */
-private fun compactNet(cents: Long): String {
-    val abs = kotlin.math.abs(cents)
-    val sign = if (cents < 0) "-" else "+"
-    return when {
-        abs >= 10_000_00 -> sign + (abs / 10_000_00) + "k"
-        abs >= 100_00 -> sign + (abs / 100)
-        else -> {
-            val yuan = abs / 100.0
-            val text = if (yuan == yuan.toLong().toDouble()) {
-                yuan.toLong().toString()
-            } else {
-                String.format(java.util.Locale.CHINA, "%.1f", yuan)
-            }
-            sign + text
-        }
     }
 }
 
